@@ -1,7 +1,7 @@
 #version 460 core
 
-#define SCREEN_WIDTH 1440
-#define SCREEN_HEIGHT 1280
+#define SCREEN_WIDTH 1276
+#define SCREEN_HEIGHT 1321
 #define BLOCKS_WIDTH 100
 #define BLOCKS_HEIGHT 100
 #define BLOCKS_DEPTH 100
@@ -47,6 +47,10 @@ layout(location = 0) out vec4 outDisplay;
 #include "Voxels.glsl"
 
 #ifdef IS_COMP_SHADER
+#ifdef _ENTRY_POINT_CS_ClearBlocks
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+void main() { CS_ClearBlocks(); }
+#endif // _ENTRY_POINT_CS_ClearBlocks
 #ifdef _ENTRY_POINT_CS_GenVoxelsTest
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 void main() { CS_GenVoxelsTest(); }

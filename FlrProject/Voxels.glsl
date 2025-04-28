@@ -1,4 +1,5 @@
-
+#include <Misc/Sampling.glsl>
+#include <Misc/Input.glsl>
 
 vec3 computeDir(vec2 uv) {
 	vec2 d = uv * 2.0 - 1.0;
@@ -15,8 +16,14 @@ uint getBlockIdx(uvec3 globalId) {
 
 uint getLocalIdx(uvec3 globalId) {
   // localId within 8x8x8 block (0-511)
-  uvec3 localId = globalId & 7;
-  return (localId.z << 6) | (localId.y << 3) | localId.x;
+  uvec3 offset64Id = (globalId >> 2) & 1;
+  uint offset64Idx = (offset64Id.z << 2) | (offset64Id.y << 1) | offset64Id.x; 
+
+  // bits within u32x2 block (4x4x4=64)
+  uvec3 bitId = globalId & 3;
+  uint bitIdx = (bitId.z << 4) | (bitId.y << 2) | bitId.x;
+  
+  return (offset64Idx << 6) | bitIdx;
 }
 
 void getLocalOffsets(uint localIdx, out uint offsetBase128, out uint offsetBase32, out uint bitOffset) {
@@ -25,7 +32,7 @@ void getLocalOffsets(uint localIdx, out uint offsetBase128, out uint offsetBase3
   // offset in base 32 (i.e. in terms of uints) relative to uvec4
   offsetBase32 = (localIdx >> 5) & 3;
   // bit offset, relative to above uint
-  bitOffset = localIdx & 0x1F;
+  bitOffset = localIdx & 31;
 }
 
 bool sampleBitField(vec3 pos, out uvec3 globalId) {
@@ -34,7 +41,7 @@ bool sampleBitField(vec3 pos, out uvec3 globalId) {
     return false;
   }
 
-  pos *= vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH) * 0.9999;
+  pos *= vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH) * 0.999999;
   globalId = uvec3(pos);
   
   uint blockIdx = getBlockIdx(globalId);
@@ -58,6 +65,17 @@ bool sampleDensity(vec3 pos) {
 }
 
 #ifdef IS_COMP_SHADER
+void CS_ClearBlocks() {
+  uint blockIdx = gl_GlobalInvocationID.x;
+  if (blockIdx >= BLOCKS_COUNT)
+    return;
+  
+  voxelBuffer[blockIdx].bitfield[0] = uvec4(0);
+  voxelBuffer[blockIdx].bitfield[1] = uvec4(0);
+  voxelBuffer[blockIdx].bitfield[2] = uvec4(0);
+  voxelBuffer[blockIdx].bitfield[3] = uvec4(0);
+}
+
 void CS_GenVoxelsTest() {
   uvec3 globalIdStart = 4 * gl_GlobalInvocationID.xyz;
   if (globalIdStart.x >= CELLS_WIDTH || globalIdStart.y >= CELLS_HEIGHT || globalIdStart.z >= CELLS_DEPTH) 
@@ -65,7 +83,7 @@ void CS_GenVoxelsTest() {
   
   uvec2 outVec = uvec2(0, 0);
   for (uint i = 0; i < 64; i++) {
-    uvec3 globalId = globalIdStart + uvec3(i >> 4, (i >> 2) & 3, i & 3);
+    uvec3 globalId = globalIdStart + uvec3(i & 3, (i >> 2) & 3, i >> 4);
     vec3 pos = vec3(globalId) / vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
     if (sampleDensity(pos))
       outVec[i >> 5] |= 1 << (i & 31);
@@ -101,8 +119,14 @@ void PS_RayMarchVoxels(VertexOutput IN) {
   for (int i = 0; i < ITERS; i++) {
     depth += DT;
     vec3 curPos = pos + dir * depth;
-    if (sampleBitField(curPos)) {
-      outDisplay = vec4(depth.xxx, 1.0);
+    uvec3 globalId;
+    if (sampleBitField(0.6 * curPos, globalId)) {
+      uvec2 seed = globalId.xy ^ globalId.yz;
+      if ((uniforms.inputMask & INPUT_BIT_SPACE) != 0) {
+        outDisplay = vec4(randVec3(seed), 1.0);
+      } else {
+        outDisplay = vec4(depth.xxx, 1.0);
+      }
       break;
     }
   }

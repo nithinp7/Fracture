@@ -33,7 +33,12 @@ struct VertexOutput {
 }
 struct_size: 8
 
+#just for testing...
+compute_shader CS_ClearBlocks: 32 1 1
 compute_shader CS_GenVoxelsTest: 8 8 8
+
+compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
+barrier: voxelBuffer
 
 uint DISPATCH_DIM_X: CELLS_WIDTH/4
 uint DISPATCH_DIM_Y: CELLS_HEIGHT/4
