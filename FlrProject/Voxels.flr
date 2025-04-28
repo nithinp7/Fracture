@@ -1,0 +1,49 @@
+
+enable_feature: perspective_camera
+
+slider_float DT: 0.01 0.001 0.1
+slider_uint ITERS: 100 20 1000
+
+slider_float FREQ_A: 12.5 0.0 20.0
+slider_float FREQ_B: 9.1 0.0 20.0
+slider_float AMPL: 0.361 0.1 * 10.0
+slider_float OFFS: 0.092 0.0 1.0
+
+uint BLOCKS_WIDTH: 100
+uint BLOCKS_HEIGHT: 100
+uint BLOCKS_DEPTH: 100
+uint BLOCKS_COUNT: BLOCKS_WIDTH * BLOCKS_HEIGHT * BLOCKS_DEPTH
+
+uint CELLS_WIDTH: BLOCKS_WIDTH * 8
+uint CELLS_HEIGHT: BLOCKS_HEIGHT * 8
+uint CELLS_DEPTH: BLOCKS_DEPTH * 8
+uint CELLS_COUNT: CELLS_WIDTH * CELLS_HEIGHT * CELLS_DEPTH
+
+struct Block {
+  uvec4 bitfield[4];
+}
+struct_size: 64
+
+structured_buffer voxelBuffer: Block BLOCKS_COUNT
+
+display_image DisplayImage
+
+struct VertexOutput {
+  vec2 uv;
+}
+struct_size: 8
+
+compute_shader CS_GenVoxelsTest: 8 8 8
+
+uint DISPATCH_DIM_X: CELLS_WIDTH/4
+uint DISPATCH_DIM_Y: CELLS_HEIGHT/4
+uint DISPATCH_DIM_Z: CELLS_DEPTH/4
+compute_dispatch: CS_GenVoxelsTest DISPATCH_DIM_X DISPATCH_DIM_Y DISPATCH_DIM_Z
+barrier: voxelBuffer
+
+render_pass DISPLAY_PASS:
+  store_attachments: outDisplay=DisplayImage
+
+  draw: VS_RayMarchVoxels PS_RayMarchVoxels 3 1
+    vertex_output: VertexOutput
+    disable_depth

@@ -1,0 +1,70 @@
+#version 460 core
+
+#define SCREEN_WIDTH 1440
+#define SCREEN_HEIGHT 1280
+#define BLOCKS_WIDTH 100
+#define BLOCKS_HEIGHT 100
+#define BLOCKS_DEPTH 100
+#define BLOCKS_COUNT 1000000
+#define CELLS_WIDTH 800
+#define CELLS_HEIGHT 800
+#define CELLS_DEPTH 800
+#define CELLS_COUNT 512000000
+#define DISPATCH_DIM_X 200
+#define DISPATCH_DIM_Y 200
+#define DISPATCH_DIM_Z 200
+
+struct Block {
+  uvec4 bitfield[4];
+};
+
+struct VertexOutput {
+  vec2 uv;
+};
+
+layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block voxelBuffer[]; };
+
+layout(set=1, binding=2) uniform _UserUniforms {
+	uint ITERS;
+	float DT;
+	float FREQ_A;
+	float FREQ_B;
+	float AMPL;
+	float OFFS;
+};
+
+#include <Fluorescence.glsl>
+
+layout(set=1, binding=3) uniform _CameraUniforms { PerspectiveCamera camera; };
+
+
+
+#ifdef IS_PIXEL_SHADER
+#ifdef _ENTRY_POINT_PS_RayMarchVoxels
+layout(location = 0) out vec4 outDisplay;
+#endif // _ENTRY_POINT_PS_RayMarchVoxels
+#endif // IS_PIXEL_SHADER
+#include "Voxels.glsl"
+
+#ifdef IS_COMP_SHADER
+#ifdef _ENTRY_POINT_CS_GenVoxelsTest
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+void main() { CS_GenVoxelsTest(); }
+#endif // _ENTRY_POINT_CS_GenVoxelsTest
+#endif // IS_COMP_SHADER
+
+
+#ifdef IS_VERTEX_SHADER
+#ifdef _ENTRY_POINT_VS_RayMarchVoxels
+layout(location = 0) out VertexOutput _VERTEX_OUTPUT;
+void main() { _VERTEX_OUTPUT = VS_RayMarchVoxels(); }
+#endif // _ENTRY_POINT_VS_RayMarchVoxels
+#endif // IS_VERTEX_SHADER
+
+
+#ifdef IS_PIXEL_SHADER
+#ifdef _ENTRY_POINT_PS_RayMarchVoxels
+layout(location = 0) in VertexOutput _VERTEX_INPUT;
+void main() { PS_RayMarchVoxels(_VERTEX_INPUT); }
+#endif // _ENTRY_POINT_PS_RayMarchVoxels
+#endif // IS_PIXEL_SHADER
