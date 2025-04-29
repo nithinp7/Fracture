@@ -6,7 +6,7 @@ slider_uint ITERS: 100 20 1000
 
 slider_float FREQ_A: 12.5 0.0 20.0
 slider_float FREQ_B: 9.1 0.0 20.0
-slider_float AMPL: 0.361 0.1 * 10.0
+slider_float AMPL: 0.361 0.1 10.0
 slider_float OFFS: 0.092 0.0 1.0
 
 uint BLOCKS_WIDTH: 100

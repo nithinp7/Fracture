@@ -114,6 +114,12 @@ void PS_RayMarchVoxels(VertexOutput IN) {
   vec3 dir = computeDir(IN.uv);
   vec3 pos = camera.inverseView[3].xyz;
 
+  // jitter
+  {
+    uvec2 seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
+    pos += rng(seed) * dir * DT;
+  }
+
   outDisplay = vec4(IN.uv, 0.0, 1.0);
   float depth = 0.0;
   for (int i = 0; i < ITERS; i++) {
@@ -121,10 +127,12 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     vec3 curPos = pos + dir * depth;
     uvec3 globalId;
     if (sampleBitField(0.6 * curPos, globalId)) {
-      uvec2 seed = globalId.xy ^ globalId.yz;
       if ((uniforms.inputMask & INPUT_BIT_SPACE) != 0) {
+        // meshlet coloring
+        uvec2 seed = globalId.xy ^ globalId.yz;
         outDisplay = vec4(randVec3(seed), 1.0);
       } else {
+        // depth coloring
         outDisplay = vec4(depth.xxx, 1.0);
       }
       break;

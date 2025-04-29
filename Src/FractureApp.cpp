@@ -12,7 +12,7 @@ namespace flr {
 
 
 void FractureApp::setupDescriptorTable(DescriptorSetLayoutBuilder& builder) {
-  builder.addTextureBinding();
+  //builder.addTextureBinding();
 }
 
 void FractureApp::createDescriptors(ResourcesAssignment& assignment) {

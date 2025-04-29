@@ -1,7 +1,7 @@
 #version 460 core
 
-#define SCREEN_WIDTH 1276
-#define SCREEN_HEIGHT 1321
+#define SCREEN_WIDTH 1440
+#define SCREEN_HEIGHT 1280
 #define BLOCKS_WIDTH 100
 #define BLOCKS_HEIGHT 100
 #define BLOCKS_DEPTH 100

@@ -24,8 +24,7 @@ int main(int argc, char* argv[]) {
   Application app("Fracture", "../../../Fluorescence", "../../../Fluorescence/Extern/Althea", &options);
   flr::Fluorescence* game = app.createGame<flr::Fluorescence>();
   {
-    // TODO: fix....
-    game->setStartupProject("C:/Users/nithi/Documents/Code/Fluorescence/Projects/SkinMaps/SkinMaps.flr");
+    game->setStartupProject("../../FlrProject/Voxels.flr");
   }
   FractureApp* fractureApp = game->registerProgram<FractureApp>();
 
