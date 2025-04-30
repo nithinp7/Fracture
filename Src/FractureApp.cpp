@@ -24,6 +24,8 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
   const char* folderPath = "C:/Users/nithi/Documents/Data/CT_Scans/Bison/SCAN/AMNH-Mammals-232575-000649595/AMNH-mammals-232575";
   char filePath[2048];
 
+  m_curSlice = 5000;
+
   m_slicesImageData.resize(500);
 
   int sliceWidth = 0;
@@ -38,6 +40,10 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
     int desiredChannels = 1;
     m_slicesImageData[numSlices] = stbi_load(filePath, &sliceWidth, &sliceHeight, &origChannels, desiredChannels);
   }
+
+  m_sliceWidth = sliceWidth;
+  m_sliceHeight = sliceHeight;
+  m_numSlices = numSlices;
 
 #if 0
   for (int sliceIdx = 0; sliceIdx < numSlices; sliceIdx++) {
@@ -76,9 +82,9 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
     {
       size_t sliceByteSize = sliceWidth * sliceHeight; // one 8-bit channel
       VkBuffer stagingBuffer = commandBuffer.createStagingBuffer(
-        *flr::GApplication, 
+        *flr::GApplication,
         gsl::span<const std::byte>(
-          reinterpret_cast<const std::byte*>(pImg), 
+          reinterpret_cast<const std::byte*>(pImg),
           sliceByteSize));
 
       VkBufferImageCopy region{};
@@ -107,9 +113,9 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
   }
 
   m_volumeTexture.image.transitionLayout(
-    commandBuffer, 
-    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 
-    VK_ACCESS_SHADER_READ_BIT, 
+    commandBuffer,
+    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    VK_ACCESS_SHADER_READ_BIT,
     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 #endif 
 }
@@ -126,5 +132,28 @@ void FractureApp::tick(flr::Project* project, const FrameContext& frame) {
 }
 
 void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, const FrameContext& frame) {
+  auto curSlice = project->getSliderUintValue("CUR_SLICE");
+  assert(curSlice);
 
+  if (*curSlice != m_curSlice) {
+    m_curSlice = *curSlice;
+
+    BufferAllocation* uploadBuffer = project->getBufferByName("batchUploadBuffer");
+    assert(uploadBuffer);
+
+    void* dst = uploadBuffer->mapMemory();
+    uint32_t sliceByteSize = m_sliceWidth * m_sliceHeight;
+    int batchSize = 8;       
+    for (int i = m_curSlice, offset = 0; i < (m_curSlice + batchSize) && i < m_slicesImageData.size(); i++, offset += sliceByteSize) {
+      stbi_uc* img = m_slicesImageData[i];
+      memcpy((char*)dst + offset, img, m_sliceWidth * m_sliceHeight);
+    }
+    uploadBuffer->unmapMemory();
+
+    flr::TaskBlockId uploadVoxelsTaskId = project->findTaskBlock("UPLOAD_VOXELS");
+    assert(uploadVoxelsTaskId.isValid());
+
+    project->setPushConstants(m_sliceWidth, m_sliceHeight);
+    project->executeTaskBlock(uploadVoxelsTaskId, commandBuffer, frame);
+  }
 }

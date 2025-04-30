@@ -10,6 +10,8 @@
 #define CELLS_HEIGHT 800
 #define CELLS_DEPTH 800
 #define CELLS_COUNT 512000000
+#define UPLOAD_BATCH_SIZE_BASE32 8372232
+#define UPLOAD_DIM 255
 #define DISPATCH_DIM_X 200
 #define DISPATCH_DIM_Y 200
 #define DISPATCH_DIM_Z 200
@@ -18,14 +20,22 @@ struct Block {
   uvec4 bitfield[4];
 };
 
+struct Uint {
+  uint u;
+};
+
 struct VertexOutput {
   vec2 uv;
 };
 
 layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block voxelBuffer[]; };
+layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint batchUploadBuffer[]; };
 
-layout(set=1, binding=2) uniform _UserUniforms {
+layout(set=1, binding=3) uniform _UserUniforms {
 	uint ITERS;
+	uint CUR_SLICE;
+	uint CUTOFF_LO;
+	uint CUTOFF_HI;
 	float DT;
 	float FREQ_A;
 	float FREQ_B;
@@ -35,7 +45,7 @@ layout(set=1, binding=2) uniform _UserUniforms {
 
 #include <Fluorescence.glsl>
 
-layout(set=1, binding=3) uniform _CameraUniforms { PerspectiveCamera camera; };
+layout(set=1, binding=4) uniform _CameraUniforms { PerspectiveCamera camera; };
 
 
 
@@ -47,6 +57,10 @@ layout(location = 0) out vec4 outDisplay;
 #include "Voxels.glsl"
 
 #ifdef IS_COMP_SHADER
+#ifdef _ENTRY_POINT_CS_UploadVoxels
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main() { CS_UploadVoxels(); }
+#endif // _ENTRY_POINT_CS_UploadVoxels
 #ifdef _ENTRY_POINT_CS_ClearBlocks
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 void main() { CS_ClearBlocks(); }

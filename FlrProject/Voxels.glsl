@@ -65,6 +65,37 @@ bool sampleDensity(vec3 pos) {
 }
 
 #ifdef IS_COMP_SHADER
+void CS_UploadVoxels() {
+  uint sliceWidth = push0;
+  uint sliceHeight = push1;
+
+  uvec2 tileId = gl_GlobalInvocationID.xy;
+  if (tileId.x >= sliceWidth/8 || tileId.y >= sliceHeight/8) {
+    return;
+  }
+
+  uvec3 globalIdStart = 8*uvec3(tileId, CUR_SLICE);
+  uvec2 outVec = uvec2(0);
+  // for (uint i=0;i<8;i++) for (uint j=0;j<8;j++) for (uint k=0;k<8;k++) {
+  for (uint i = 0; i < 64; i++) {
+    uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
+    uvec3 globalId = globalIdStart + localId;
+    uint texelIdx = localId.z * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
+    uint val = clamp(batchUploadBuffer[texelIdx].u, CUTOFF_LO, CUTOFF_HI);
+    if (val != 0)
+      outVec[i >> 5] |= 1 << (i & 31);
+  }
+
+  uint blockIdx = getBlockIdx(globalIdStart);
+  uint localIdx = getLocalIdx(globalIdStart);
+
+  uint offsetBase128, offsetBase32Start, bitOffset_unused;
+  getLocalOffsets(localIdx, offsetBase128, offsetBase32Start, bitOffset_unused);
+  
+  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start] = outVec[0];
+  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
+}
+
 void CS_ClearBlocks() {
   uint blockIdx = gl_GlobalInvocationID.x;
   if (blockIdx >= BLOCKS_COUNT)

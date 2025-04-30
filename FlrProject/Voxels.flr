@@ -4,6 +4,10 @@ enable_feature: perspective_camera
 slider_float DT: 0.01 0.001 0.1
 slider_uint ITERS: 100 20 1000
 
+slider_uint CUR_SLICE: 0 0 99
+slider_uint CUTOFF_LO: 0 0 255
+slider_uint CUTOFF_HI: 255 0 255
+
 slider_float FREQ_A: 12.5 0.0 20.0
 slider_float FREQ_B: 9.1 0.0 20.0
 slider_float AMPL: 0.361 0.1 10.0
@@ -26,6 +30,14 @@ struct_size: 64
 
 structured_buffer voxelBuffer: Block BLOCKS_COUNT
 
+struct Uint {
+  uint u;
+}
+struct_size: 4
+uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 8 / 4
+structured_buffer batchUploadBuffer: Uint UPLOAD_BATCH_SIZE_BASE32
+  enable_cpu_access
+
 display_image DisplayImage
 
 struct VertexOutput {
@@ -33,9 +45,17 @@ struct VertexOutput {
 }
 struct_size: 8
 
+uint UPLOAD_DIM: 2046/8
+compute_shader CS_UploadVoxels: 8 8 1
+
 #just for testing...
 compute_shader CS_ClearBlocks: 32 1 1
 compute_shader CS_GenVoxelsTest: 8 8 8
+
+task_block_start UPLOAD_VOXELS
+  compute_dispatch: CS_UploadVoxels UPLOAD_DIM UPLOAD_DIM 1
+  barrier: voxelBuffer
+task_block_end
 
 compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
 barrier: voxelBuffer
