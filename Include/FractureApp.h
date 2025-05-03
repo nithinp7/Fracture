@@ -32,7 +32,7 @@ public:
 private:
   ImageResource m_volumeTexture;
   flr::Project* m_pProject;
-  std::vector<stbi_uc*> m_slicesImageData;
+  std::vector<Utilities::ImageFile> m_slicesImageData;
   uint32_t m_sliceWidth;
   uint32_t m_sliceHeight;
   uint32_t m_numSlices;

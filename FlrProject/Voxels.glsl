@@ -76,12 +76,14 @@ void CS_UploadVoxels() {
 
   uvec3 globalIdStart = 8*uvec3(tileId, CUR_SLICE);
   uvec2 outVec = uvec2(0);
-  // for (uint i=0;i<8;i++) for (uint j=0;j<8;j++) for (uint k=0;k<8;k++) {
   for (uint i = 0; i < 64; i++) {
     uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = localId.z * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
-    uint val = clamp(batchUploadBuffer[texelIdx].u, CUTOFF_LO, CUTOFF_HI);
+    uint val = batchUploadBuffer[texelIdx >> 1].u;
+    val >>= 16 * (texelIdx & 1); // TODO endianness check...
+    val &= 0xFFFF;
+    val = clamp(val, CUTOFF_LO, CUTOFF_HI);
     if (val != 0)
       outVec[i >> 5] |= 1 << (i & 31);
   }
@@ -168,6 +170,12 @@ void PS_RayMarchVoxels(VertexOutput IN) {
       }
       break;
     }
+  }
+
+  if ((uniforms.inputMask & INPUT_BIT_T) != 0) {
+    uvec2 texel = uvec2(vec2(1530, 1805) * IN.uv * 0.999);
+    uint val = batchUploadBuffer[(1530 * 1805 * (CUR_SLICE & 7) + texel.y * 1530 + texel.x) / 2].u;
+    outDisplay = val != 0 ? 1.0.xxxx : vec4(0.0.xxx, 1.0);
   }
 }
 

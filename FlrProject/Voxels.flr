@@ -34,7 +34,7 @@ struct Uint {
   uint u;
 }
 struct_size: 4
-uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 8 / 4
+uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 2 * 8 / 4
 structured_buffer batchUploadBuffer: Uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
 
@@ -53,18 +53,20 @@ compute_shader CS_ClearBlocks: 32 1 1
 compute_shader CS_GenVoxelsTest: 8 8 8
 
 task_block_start UPLOAD_VOXELS
+  compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
+  barrier: voxelBuffer
   compute_dispatch: CS_UploadVoxels UPLOAD_DIM UPLOAD_DIM 1
   barrier: voxelBuffer
 task_block_end
 
-compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
-barrier: voxelBuffer
+#compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
+#barrier: voxelBuffer
 
 uint DISPATCH_DIM_X: CELLS_WIDTH/4
 uint DISPATCH_DIM_Y: CELLS_HEIGHT/4
 uint DISPATCH_DIM_Z: CELLS_DEPTH/4
-compute_dispatch: CS_GenVoxelsTest DISPATCH_DIM_X DISPATCH_DIM_Y DISPATCH_DIM_Z
-barrier: voxelBuffer
+#compute_dispatch: CS_GenVoxelsTest DISPATCH_DIM_X DISPATCH_DIM_Y DISPATCH_DIM_Z
+#barrier: voxelBuffer
 
 render_pass DISPLAY_PASS:
   store_attachments: outDisplay=DisplayImage
