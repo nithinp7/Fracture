@@ -1,17 +1,17 @@
 #version 460 core
 
-#define SCREEN_WIDTH 1440
-#define SCREEN_HEIGHT 1280
+#define SCREEN_WIDTH 2560
+#define SCREEN_HEIGHT 1334
 #define BLOCKS_WIDTH 200
 #define BLOCKS_HEIGHT 200
-#define BLOCKS_DEPTH 200
-#define BLOCKS_COUNT 8000000
+#define BLOCKS_DEPTH 400
+#define BLOCKS_COUNT 16000000
 #define CELLS_WIDTH 1600
 #define CELLS_HEIGHT 1600
-#define CELLS_DEPTH 1600
-#define CELLS_COUNT 4096000000
-#define UPLOAD_BATCH_SIZE_BASE32 16744464
-#define UPLOAD_DIM 511
+#define CELLS_DEPTH 3200
+#define CELLS_COUNT 3897032704
+#define BATCH_SIZE 16
+#define UPLOAD_BATCH_SIZE_BASE32 33488928
 
 struct Block {
   uvec4 bitfield[4];
@@ -38,6 +38,7 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	float AMPL;
 	float OFFS;
 	bool ENABLE_JITTER;
+	bool ENABLE_STAGGERED_STREAMING;
 };
 
 #include <Fluorescence.glsl>

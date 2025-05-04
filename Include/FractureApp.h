@@ -30,6 +30,8 @@ public:
     const FrameContext& frame) override;
 
 private:
+  void restreamBatch();
+
   ImageResource m_volumeTexture;
   flr::Project* m_pProject;
   std::vector<Utilities::ImageFile> m_slicesImageData;
@@ -41,6 +43,7 @@ private:
   uint32_t m_cutoffLo;
   uint32_t m_cutoffHi;
 
+  uint32_t m_batchSize;
   uint32_t m_blockCount;
   uint32_t m_cellsCount;
   uint32_t m_cellsDepth;

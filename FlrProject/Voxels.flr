@@ -4,6 +4,7 @@ enable_feature: perspective_camera
 slider_float DT: 0.01 0.001 0.1
 slider_uint ITERS: 100 20 1000
 checkbox ENABLE_JITTER: true
+checkbox ENABLE_STAGGERED_STREAMING: true
 
 slider_uint CUTOFF_LO: 0 0 65535
 slider_uint CUTOFF_HI: 65535 0 65535
@@ -15,7 +16,7 @@ slider_float OFFS: 0.092 0.0 1.0
 
 uint BLOCKS_WIDTH: 200
 uint BLOCKS_HEIGHT: 200
-uint BLOCKS_DEPTH: 200
+uint BLOCKS_DEPTH: 400
 uint BLOCKS_COUNT: BLOCKS_WIDTH * BLOCKS_HEIGHT * BLOCKS_DEPTH
 
 uint CELLS_WIDTH: BLOCKS_WIDTH * 8
@@ -34,7 +35,8 @@ struct Uint {
   uint u;
 }
 struct_size: 4
-uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 2 * 8 / 4
+uint BATCH_SIZE: 16
+uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 2 * BATCH_SIZE / 4
 structured_buffer batchUploadBuffer: Uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
 
@@ -45,7 +47,6 @@ struct VertexOutput {
 }
 struct_size: 8
 
-uint UPLOAD_DIM: 2046/4
 compute_shader CS_UploadVoxels: 8 8 1
 
 compute_shader CS_ClearBlocks: 32 1 1

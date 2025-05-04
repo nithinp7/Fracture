@@ -35,13 +35,16 @@ void getLocalOffsets(uint localIdx, out uint offsetBase128, out uint offsetBase3
   bitOffset = localIdx & 31;
 }
 
-bool sampleBitField(vec3 pos, out uvec3 globalId) {
+bool sampleBitField(vec3 pos, out uvec3 globalId, out vec3 normal) {
+  vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
+  vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
+  pos *= aspectRatio * dims * 0.999999;
+
   if (pos.x < 0.0 || pos.y < 0.0 || pos.z < 0.0 || 
-      pos.x > 1.0 || pos.y > 1.0 || pos.z > 1.0) {
+      pos.x >= CELLS_WIDTH || pos.y >= CELLS_HEIGHT || pos.z >= CELLS_DEPTH) {
     return false;
   }
 
-  pos *= vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH) * 0.999999;
   globalId = uvec3(pos);
   
   uint blockIdx = getBlockIdx(globalId);
@@ -51,12 +54,29 @@ bool sampleBitField(vec3 pos, out uvec3 globalId) {
   getLocalOffsets(localIdx, offsetBase128, offsetBase32, bitOffset);
 
   uint bit = (voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32] >> bitOffset) & 1; 
-  return bit == 1;
+  if (bit == 1) {
+    uvec2 block = uvec2(
+      voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32 & ~1],
+      voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32 | 1]
+    );
+
+    normal = vec3(0.0);
+    for (uint i = 0; i < 64; i++) {
+      uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
+      if ((block[i >> 5] & (1 << (i & 31))) != 0) {
+        normal += vec3(localId) - 1.5.xxx;
+      }
+    }
+    normal = normalize(normal);
+    return true;
+  }
+
+  return false;
 }
 
-bool sampleBitField(vec3 pos) {
+bool sampleBitField(vec3 pos, out vec3 normal) {
   uvec3 globalId_unused;
-  return sampleBitField(pos, globalId_unused);
+  return sampleBitField(pos, globalId_unused, normal);
 }
 
 bool sampleDensity(vec3 pos) {
@@ -81,7 +101,7 @@ void CS_UploadVoxels() {
   for (uint i = 0; i < 64; i++) {
     uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
     uvec3 globalId = globalIdStart + localId;
-    uint texelIdx = localId.z * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
+    uint texelIdx = (localId.z + 4 * tileId.z) * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
     uint val = batchUploadBuffer[texelIdx >> 1].u;
     val >>= 16 * (texelIdx & 1); 
     val &= 0xFFFF;
@@ -149,22 +169,30 @@ VertexOutput VS_RayMarchVoxels() {
 
 #ifdef IS_PIXEL_SHADER
 void PS_RayMarchVoxels(VertexOutput IN) {
-  vec3 dir = computeDir(IN.uv);
-  vec3 pos = camera.inverseView[3].xyz;
-
-  if (ENABLE_JITTER)
-  {
-    uvec2 seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
-    pos += rng(seed) * dir * DT;
+  uvec2 jitterSeed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
+  if (ENABLE_JITTER) {
+    IN.uv += (randVec2(jitterSeed) - 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
-  outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
+  vec3 dir = computeDir(IN.uv);
+  vec3 pos = camera.inverseView[3].xyz;
+  if (ENABLE_JITTER) {
+    pos += rng(jitterSeed) * dir * DT * 2.3;
+  }
+
+  // outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
+  
+  float f = dir.x + dir.y + dir.z;
+  outDisplay = vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
+  uvec3 globalId;
   float depth = 0.0;
-  for (int i = 0; i < ITERS; i++) {
+  vec3 normal;
+  int iter = 0;
+  for (iter = 0; iter < ITERS; iter++) {
     depth += DT;
     vec3 curPos = pos + dir * depth;
-    uvec3 globalId;
-    if (sampleBitField(0.6 * curPos, globalId)) {
+    curPos.y *= -1.0;
+    if (sampleBitField(0.4 * curPos, globalId, normal)) {
       if ((uniforms.inputMask & INPUT_BIT_SPACE) != 0) {
         // meshlet coloring
         uvec2 seed = globalId.xy ^ globalId.yz;
@@ -176,6 +204,20 @@ void PS_RayMarchVoxels(VertexOutput IN) {
       }
       break;
     }
+  }
+
+  if (iter < ITERS) {
+    float dx = dFdx(depth);
+    float dy = dFdx(depth);
+    globalId >>= 8;
+    uvec2 seed = globalId.xz ^ globalId.zx;
+    vec3 col = randVec3(seed);
+    // col *= exp(-0.1 * depth * depth);
+    // outDisplay = vec4(col, 1.0);
+    // outDisplay = vec4(10.0 * sqrt(dx * dx + dy * dy).xxx, 1.0);
+    vec3 lightDir = normalize(1.0.xxx);
+    col *= max(dot(lightDir, normal), 0.0) + 0.1.xxx;
+    outDisplay = vec4(col, 1.0);
   }
 
   if ((uniforms.inputMask & INPUT_BIT_T) != 0) 
