@@ -3,19 +3,19 @@ enable_feature: perspective_camera
 
 slider_float DT: 0.01 0.001 0.1
 slider_uint ITERS: 100 20 1000
+checkbox ENABLE_JITTER: true
 
-slider_uint CUR_SLICE: 0 0 99
-slider_uint CUTOFF_LO: 0 0 255
-slider_uint CUTOFF_HI: 255 0 255
+slider_uint CUTOFF_LO: 0 0 65535
+slider_uint CUTOFF_HI: 65535 0 65535
 
 slider_float FREQ_A: 12.5 0.0 20.0
 slider_float FREQ_B: 9.1 0.0 20.0
 slider_float AMPL: 0.361 0.1 10.0
 slider_float OFFS: 0.092 0.0 1.0
 
-uint BLOCKS_WIDTH: 100
-uint BLOCKS_HEIGHT: 100
-uint BLOCKS_DEPTH: 100
+uint BLOCKS_WIDTH: 200
+uint BLOCKS_HEIGHT: 200
+uint BLOCKS_DEPTH: 200
 uint BLOCKS_COUNT: BLOCKS_WIDTH * BLOCKS_HEIGHT * BLOCKS_DEPTH
 
 uint CELLS_WIDTH: BLOCKS_WIDTH * 8
@@ -45,26 +45,20 @@ struct VertexOutput {
 }
 struct_size: 8
 
-uint UPLOAD_DIM: 2046/8
+uint UPLOAD_DIM: 2046/4
 compute_shader CS_UploadVoxels: 8 8 1
 
-#just for testing...
 compute_shader CS_ClearBlocks: 32 1 1
 compute_shader CS_GenVoxelsTest: 8 8 8
 
-task_block_start UPLOAD_VOXELS
+task_block_start CLEAR_VOXELS
   compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
-  barrier: voxelBuffer
-  compute_dispatch: CS_UploadVoxels UPLOAD_DIM UPLOAD_DIM 1
   barrier: voxelBuffer
 task_block_end
 
-#compute_dispatch: CS_ClearBlocks BLOCKS_COUNT 1 1
-#barrier: voxelBuffer
-
-uint DISPATCH_DIM_X: CELLS_WIDTH/4
-uint DISPATCH_DIM_Y: CELLS_HEIGHT/4
-uint DISPATCH_DIM_Z: CELLS_DEPTH/4
+#uint DISPATCH_DIM_X: CELLS_WIDTH/4
+#uint DISPATCH_DIM_Y: CELLS_HEIGHT/4
+#uint DISPATCH_DIM_Z: CELLS_DEPTH/4
 #compute_dispatch: CS_GenVoxelsTest DISPATCH_DIM_X DISPATCH_DIM_Y DISPATCH_DIM_Z
 #barrier: voxelBuffer
 

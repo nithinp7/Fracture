@@ -68,23 +68,28 @@ bool sampleDensity(vec3 pos) {
 void CS_UploadVoxels() {
   uint sliceWidth = push0;
   uint sliceHeight = push1;
+  uint sliceOffset = push2;
 
-  uvec2 tileId = gl_GlobalInvocationID.xy;
-  if (tileId.x >= sliceWidth/8 || tileId.y >= sliceHeight/8) {
+  uvec3 tileId = gl_GlobalInvocationID.xyz;
+  if (tileId.x >= CELLS_WIDTH/4 || tileId.y >= CELLS_HEIGHT/4 ||
+      tileId.x >= sliceWidth/4 || tileId.y >= sliceHeight/4) {
     return;
   }
 
-  uvec3 globalIdStart = 8*uvec3(tileId, CUR_SLICE);
+  uvec3 globalIdStart = 4 * tileId + uvec3(0, 0, sliceOffset);
   uvec2 outVec = uvec2(0);
   for (uint i = 0; i < 64; i++) {
     uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = localId.z * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
     uint val = batchUploadBuffer[texelIdx >> 1].u;
-    val >>= 16 * (texelIdx & 1); // TODO endianness check...
+    val >>= 16 * (texelIdx & 1); 
     val &= 0xFFFF;
-    val = clamp(val, CUTOFF_LO, CUTOFF_HI);
-    if (val != 0)
+    float f = float(val) - float(CUTOFF_LO);
+    f /= float(CUTOFF_HI - CUTOFF_LO);
+    if (f < 0.0 || f > 1.0)
+      f = 0.0;
+    if (f > 0.0)
       outVec[i >> 5] |= 1 << (i & 31);
   }
 
@@ -147,13 +152,13 @@ void PS_RayMarchVoxels(VertexOutput IN) {
   vec3 dir = computeDir(IN.uv);
   vec3 pos = camera.inverseView[3].xyz;
 
-  // jitter
+  if (ENABLE_JITTER)
   {
     uvec2 seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
     pos += rng(seed) * dir * DT;
   }
 
-  outDisplay = vec4(IN.uv, 0.0, 1.0);
+  outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
   float depth = 0.0;
   for (int i = 0; i < ITERS; i++) {
     depth += DT;
@@ -166,16 +171,28 @@ void PS_RayMarchVoxels(VertexOutput IN) {
         outDisplay = vec4(randVec3(seed), 1.0);
       } else {
         // depth coloring
-        outDisplay = vec4(depth.xxx, 1.0);
+        // outDisplay = vec4(depth.xxx, 1.0);
+        outDisplay = vec4(fract(2.5 * depth).xxx, 1.0);
       }
       break;
     }
   }
 
-  if ((uniforms.inputMask & INPUT_BIT_T) != 0) {
+  if ((uniforms.inputMask & INPUT_BIT_T) != 0) 
+  {
+    uint curslice = 50;
     uvec2 texel = uvec2(vec2(1530, 1805) * IN.uv * 0.999);
-    uint val = batchUploadBuffer[(1530 * 1805 * (CUR_SLICE & 7) + texel.y * 1530 + texel.x) / 2].u;
-    outDisplay = val != 0 ? 1.0.xxxx : vec4(0.0.xxx, 1.0);
+    uint texelIdx = (1530 * 1805 * (curslice & 7) + texel.y * 1530 + texel.x);
+    uint val = batchUploadBuffer[texelIdx >> 1].u;
+    if (bool(texelIdx & 1))
+      val >>= 16;
+    else
+      val &= 0xFFFF;
+    float f = float(val) - float(CUTOFF_LO);
+    f /= float(CUTOFF_HI - CUTOFF_LO);
+    if (f > 1.0 || f < 0.0)
+      f = 0.0;
+    outDisplay = vec4(f.xxx, 1.0);
   }
 }
 

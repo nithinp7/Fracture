@@ -2,19 +2,16 @@
 
 #define SCREEN_WIDTH 1440
 #define SCREEN_HEIGHT 1280
-#define BLOCKS_WIDTH 100
-#define BLOCKS_HEIGHT 100
-#define BLOCKS_DEPTH 100
-#define BLOCKS_COUNT 1000000
-#define CELLS_WIDTH 800
-#define CELLS_HEIGHT 800
-#define CELLS_DEPTH 800
-#define CELLS_COUNT 512000000
+#define BLOCKS_WIDTH 200
+#define BLOCKS_HEIGHT 200
+#define BLOCKS_DEPTH 200
+#define BLOCKS_COUNT 8000000
+#define CELLS_WIDTH 1600
+#define CELLS_HEIGHT 1600
+#define CELLS_DEPTH 1600
+#define CELLS_COUNT 4096000000
 #define UPLOAD_BATCH_SIZE_BASE32 16744464
-#define UPLOAD_DIM 255
-#define DISPATCH_DIM_X 200
-#define DISPATCH_DIM_Y 200
-#define DISPATCH_DIM_Z 200
+#define UPLOAD_DIM 511
 
 struct Block {
   uvec4 bitfield[4];
@@ -33,7 +30,6 @@ layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint batchUploadBuffe
 
 layout(set=1, binding=3) uniform _UserUniforms {
 	uint ITERS;
-	uint CUR_SLICE;
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
 	float DT;
@@ -41,6 +37,7 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	float FREQ_B;
 	float AMPL;
 	float OFFS;
+	bool ENABLE_JITTER;
 };
 
 #include <Fluorescence.glsl>
