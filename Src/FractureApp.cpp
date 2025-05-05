@@ -94,6 +94,9 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
     {
       restreamBatch();
 
+      // TODO: double buffer the upload memory
+      vkQueueWaitIdle(flr::GApplication->getGraphicsQueue());
+
       void* dst = uploadBuffer->mapMemory();
       uint32_t sliceByteSize = 2 * m_sliceWidth * m_sliceHeight;
       int i = 0;

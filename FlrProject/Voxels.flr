@@ -1,18 +1,36 @@
 
 enable_feature: perspective_camera
 
-slider_float DT: 0.01 0.001 0.1
-slider_uint ITERS: 100 20 1000
-checkbox ENABLE_JITTER: true
-checkbox ENABLE_STAGGERED_STREAMING: true
-
-slider_uint CUTOFF_LO: 0 0 65535
+slider_float DENSITY: 20.0 1.0 50.0
+slider_uint CUTOFF_LO: 17000 0 65535
 slider_uint CUTOFF_HI: 65535 0 65535
 
-slider_float FREQ_A: 12.5 0.0 20.0
-slider_float FREQ_B: 9.1 0.0 20.0
-slider_float AMPL: 0.361 0.1 10.0
-slider_float OFFS: 0.092 0.0 1.0
+ui_dropdown_start LIGHTS
+  slider_float G: 0.65 -1.0 1.0
+  slider_float FLOOR_REFL: 0.1 0.01 0.2
+  slider_float LIGHT_INTENSITY: 10.0 1.0 100.0
+  slider_float LIGHT_THETA: 0.0 0.0 8.0
+  slider_float LIGHT_PHI: 1.0 -2.0 2.0
+  checkbox LIGHT_ANIM: true
+  slider_float SHADOW_SOFTNESS: 0.1 0.01 1.0
+ui_dropdown_end:
+
+ui_dropdown_start SAMPLING
+  slider_float DT: 0.01 0.001 0.1
+  slider_uint ITERS: 400 20 1000
+  slider_uint LIGHT_ITERS: 55 4 100
+  slider_float LIGHT_DT: 0.01 0.001 0.1
+  checkbox ENABLE_JITTER: true
+ui_dropdown_end
+
+checkbox ENABLE_STAGGERED_STREAMING: true
+
+ui_dropdown_start UNUSED
+  slider_float FREQ_A: 12.5 0.0 20.0
+  slider_float FREQ_B: 9.1 0.0 20.0
+  slider_float AMPL: 0.361 0.1 10.0
+  slider_float OFFS: 0.092 0.0 1.0
+ui_dropdown_end
 
 uint BLOCKS_WIDTH: 200
 uint BLOCKS_HEIGHT: 200

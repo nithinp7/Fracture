@@ -1,11 +1,40 @@
 #include <Misc/Sampling.glsl>
 #include <Misc/Input.glsl>
 
+uvec2 seed;
+
+float phaseFunction(float cosTheta, float g) {
+  // return 0.01 * abs(cosTheta);
+  float g2 = g * g;
+  return  
+      3.0 * (1.0 - g2) * (1.0 + cosTheta * cosTheta) / 
+      (8 * PI * (2.0 + g2) * pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5));
+}
+
+vec3 transformToGrid(vec3 pos) {
+  pos.y *= -1.0;
+  pos *= 0.4;
+  return pos;
+}
+
+vec3 getLightPos() {
+  float theta = LIGHT_THETA;
+  if (LIGHT_ANIM)
+    theta += uniforms.time;
+  float phi = LIGHT_PHI;
+  float cosphi = cos(phi); float sinphi = sin(phi);
+  float costheta = cos(theta); float sintheta = sin(theta);
+  return vec3(0.5.xx, 1.0) + 50.0 * (vec3(costheta * cosphi, sinphi, sintheta * cosphi));
+}
+vec3 getLightDir(vec3 pos) {
+  return normalize(getLightPos() - pos);
+}
+
 vec3 computeDir(vec2 uv) {
 	vec2 d = uv * 2.0 - 1.0;
 
 	vec4 target = camera.inverseProjection * vec4(d, 1.0.xx);
-	return (camera.inverseView * vec4(normalize(target.xyz), 0)).xyz;
+	return normalize((camera.inverseView * vec4(normalize(target.xyz), 0)).xyz);
 }
 
 uint getBlockIdx(uvec3 globalId) {
@@ -36,9 +65,10 @@ void getLocalOffsets(uint localIdx, out uint offsetBase128, out uint offsetBase3
 }
 
 bool sampleBitField(vec3 pos, out uvec3 globalId, out vec3 normal) {
+  pos = transformToGrid(pos);
   vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
   vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
-  pos *= aspectRatio * dims * 0.999999;
+  pos *= aspectRatio * dims;
 
   if (pos.x < 0.0 || pos.y < 0.0 || pos.z < 0.0 || 
       pos.x >= CELLS_WIDTH || pos.y >= CELLS_HEIGHT || pos.z >= CELLS_DEPTH) {
@@ -79,9 +109,40 @@ bool sampleBitField(vec3 pos, out vec3 normal) {
   return sampleBitField(pos, globalId_unused, normal);
 }
 
+bool sampleBitField(vec3 pos) {
+  uvec3 globalId_unused;
+  vec3 normal_unused;
+  return sampleBitField(pos, globalId_unused, normal_unused);
+}
+
 bool sampleDensity(vec3 pos) {
   float h = AMPL * 0.5 * cos(FREQ_A * PI * pos.x + 10.0 * uniforms.time) * 0.5 * cos(FREQ_B * PI * pos.z) + OFFS;
   return pos.y < h;
+}
+
+vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float lightDt) {
+  vec3 lightThroughput = 1.0.xxx;
+  vec3 lightPos = getLightPos();
+  vec3 lightDir = lightPos - pos;
+  float lightDist2 = dot(lightDir, lightDir);
+  lightDir /= sqrt(lightDist2);
+  pos += lightDir * lightDt * 2.0;
+  pos += SHADOW_SOFTNESS * (2.0 * randVec3(seed) - 1.0.xxx) * lightDt;
+  if (jitter)
+    pos += lightDir * lightDt * rng(seed);
+  for (int lightIter = 0; lightIter < numIters; lightIter++) {
+    pos += lightDt * lightDir;
+    if (sampleBitField(pos)) {
+      lightThroughput *= exp(-0.5 * DENSITY * lightDt).xxx;
+      if (dot(lightThroughput, lightThroughput) < 0.00001) {
+        lightThroughput = 0.0.xxx;
+        break;
+      }
+    }
+  }
+
+  vec3 LIGHT_COLOR = 1.0.xxx;
+  return 1000.0 * LIGHT_INTENSITY * LIGHT_COLOR * lightThroughput / lightDist2;
 }
 
 #ifdef IS_COMP_SHADER
@@ -103,7 +164,7 @@ void CS_UploadVoxels() {
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = (localId.z + 4 * tileId.z) * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
     uint val = batchUploadBuffer[texelIdx >> 1].u;
-    val >>= 16 * (texelIdx & 1); 
+    val >>= 16 * ((texelIdx^1) & 1); 
     val &= 0xFFFF;
     float f = float(val) - float(CUTOFF_LO);
     f /= float(CUTOFF_HI - CUTOFF_LO);
@@ -169,44 +230,89 @@ VertexOutput VS_RayMarchVoxels() {
 
 #ifdef IS_PIXEL_SHADER
 void PS_RayMarchVoxels(VertexOutput IN) {
-  uvec2 jitterSeed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
+  seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
   if (ENABLE_JITTER) {
-    IN.uv += (randVec2(jitterSeed) - 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
+    // IN.uv += (randVec2(seed) - 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
   }
+
+  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) != 0;
+  bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
+  bool bDebugRender = bMeshletView || bDepthView;
 
   vec3 dir = computeDir(IN.uv);
   vec3 pos = camera.inverseView[3].xyz;
-  if (ENABLE_JITTER) {
-    pos += rng(jitterSeed) * dir * DT * 2.3;
+  if (!bDebugRender)
+    pos += 0.25 * dir;
+  if (!bMeshletView && ENABLE_JITTER) {
+    pos += (rng(seed)) * dir * DT;
   }
 
-  // outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
-  
-  float f = dir.x + dir.y + dir.z;
+  float f = dir.y;
   outDisplay = vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
   uvec3 globalId;
   float depth = 0.0;
   vec3 normal;
   int iter = 0;
-  for (iter = 0; iter < ITERS; iter++) {
-    depth += DT;
-    vec3 curPos = pos + dir * depth;
-    curPos.y *= -1.0;
-    if (sampleBitField(0.4 * curPos, globalId, normal)) {
-      if ((uniforms.inputMask & INPUT_BIT_SPACE) != 0) {
+  vec3 throughput = 1.0.xxx;
+  vec3 color = 0.0.xxx;
+  vec3 curPos = pos;
+  float dt = DT;
+  uint iters = ITERS;
+  if (bMeshletView)
+    dt *= 0.5;
+  else
+    iters *= 2;
+  for (iter = 0; iter < iters; iter++) {
+    depth += dt;
+    curPos = pos + dir * depth;
+    vec3 lightDir = getLightDir(curPos);
+    if (sampleBitField(curPos, globalId, normal)) {
+      if (bMeshletView) {
         // meshlet coloring
-        uvec2 seed = globalId.xy ^ globalId.yz;
-        outDisplay = vec4(randVec3(seed), 1.0);
-      } else {
+        uvec2 meshletColorSeed = globalId.xy ^ globalId.yz;
+        // outDisplay = vec4(fract(2.5 * depth) * randVec3(meshletColorSeed), 1.0);
+        outDisplay = vec4(randVec3(meshletColorSeed), 1.0);
+        break;
+      } else if (bDepthView) {
         // depth coloring
         // outDisplay = vec4(depth.xxx, 1.0);
         outDisplay = vec4(fract(2.5 * depth).xxx, 1.0);
+        break;
       }
+      
+      float phase = phaseFunction(dot(lightDir, dir), G);
+      vec3 Li = raymarchLight(curPos, true, LIGHT_ITERS, LIGHT_DT);
+      color += throughput * Li * phase;
+      throughput *= exp(-DENSITY * DT);
+      if (dot(throughput, throughput) < 0.0001)
+        break;
+    }
+
+    if (curPos.y <= -1.5) {
+      float phase = max(lightDir.y, 0.0);
+      vec3 Li = raymarchLight(curPos, false, 44, 0.045);
+      color += FLOOR_REFL * throughput * Li * phase;
+      throughput = 0.0.xxx;
       break;
     }
   }
 
-  if (iter < ITERS) {
+  if (!bDebugRender && curPos.y > -1.5 && dir.y < 0.0) {
+    float u = (-1.5 - curPos.y)/dir.y;
+    curPos += u * dir;
+    vec3 lightDir = getLightDir(curPos);
+    float phase = max(lightDir.y, 0.0);
+    vec3 Li = raymarchLight(curPos, false, 44, 0.045);
+    color += FLOOR_REFL * throughput * Li * phase;
+    outDisplay.rgb = 0.0.xxx;
+  }
+
+  outDisplay.rgb *= throughput;
+  outDisplay.rgb += color;
+
+  /*
+  if (iter < ITERS) 
+  {
     float dx = dFdx(depth);
     float dy = dFdx(depth);
     globalId >>= 8;
@@ -218,8 +324,9 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     vec3 lightDir = normalize(1.0.xxx);
     col *= max(dot(lightDir, normal), 0.0) + 0.1.xxx;
     outDisplay = vec4(col, 1.0);
-  }
+  }*/
 
+  /*
   if ((uniforms.inputMask & INPUT_BIT_T) != 0) 
   {
     uint curslice = 50;
@@ -235,7 +342,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     if (f > 1.0 || f < 0.0)
       f = 0.0;
     outDisplay = vec4(f.xxx, 1.0);
-  }
+  }*/
 }
 
 #endif // IS_PIXEL_SHADER

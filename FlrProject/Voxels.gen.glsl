@@ -29,14 +29,24 @@ layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block voxelBuffer[]; };
 layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint batchUploadBuffer[]; };
 
 layout(set=1, binding=3) uniform _UserUniforms {
-	uint ITERS;
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
+	uint ITERS;
+	uint LIGHT_ITERS;
+	float DENSITY;
+	float G;
+	float FLOOR_REFL;
+	float LIGHT_INTENSITY;
+	float LIGHT_THETA;
+	float LIGHT_PHI;
+	float SHADOW_SOFTNESS;
 	float DT;
+	float LIGHT_DT;
 	float FREQ_A;
 	float FREQ_B;
 	float AMPL;
 	float OFFS;
+	bool LIGHT_ANIM;
 	bool ENABLE_JITTER;
 	bool ENABLE_STAGGERED_STREAMING;
 };
