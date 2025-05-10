@@ -1,10 +1,11 @@
 #include <Misc/Sampling.glsl>
 #include <Misc/Input.glsl>
 
+#define GetVoxelBlock(blockIdx) voxelBuffer(blockIdx/VOXEL_SUB_BUFFER_SIZE)[blockIdx%VOXEL_SUB_BUFFER_SIZE]
+
 uvec2 seed;
 
 float phaseFunction(float cosTheta, float g) {
-  // return 0.01 * abs(cosTheta);
   float g2 = g * g;
   return  
       3.0 * (1.0 - g2) * (1.0 + cosTheta * cosTheta) / 
@@ -24,8 +25,14 @@ vec3 getLightPos() {
   float phi = LIGHT_PHI;
   float cosphi = cos(phi); float sinphi = sin(phi);
   float costheta = cos(theta); float sintheta = sin(theta);
-  return vec3(0.5.xx, 1.0) + 50.0 * (vec3(costheta * cosphi, sinphi, sintheta * cosphi));
+  vec3 lpos = vec3(0.5.xx, 1.0) + 50.0 * (vec3(costheta * cosphi, sinphi, sintheta * cosphi));
+  lpos *= 100.0;
+  vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
+  vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
+  lpos *= aspectRatio * dims;
+  return lpos;
 }
+
 vec3 getLightDir(vec3 pos) {
   return normalize(getLightPos() - pos);
 }
@@ -65,29 +72,42 @@ void getLocalOffsets(uint localIdx, out uint offsetBase128, out uint offsetBase3
 }
 
 bool sampleBitField(vec3 pos, out uvec3 globalId, out vec3 normal) {
-  pos = transformToGrid(pos);
-  vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
-  vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
-  pos *= aspectRatio * dims;
+  
+  if (!ENABLE_DDA) { /*
+    pos = transformToGrid(pos);
+    if (pos.z < CROSS_SECTION_START || pos.z > CROSS_SECTION_END)
+      return false;
+    vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
+    vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
+    pos *= aspectRatio * dims;*/
+  }
+
+  // if (ENABLE_DDA) {
+  //   ivec3 id = abs(ivec3(pos));
+  //   // return (abs(id.x + id.y + id.z) & 1) == 1;
+  //   globalId = uvec3(id); 
+  //   uint sideLen = 100;
+  //   return id.x < sideLen && id.y < sideLen && id.z < sideLen;//(abs(id.x + id.y + id.z) & 1) == 1;
+    
+  // }
 
   if (pos.x < 0.0 || pos.y < 0.0 || pos.z < 0.0 || 
       pos.x >= CELLS_WIDTH || pos.y >= CELLS_HEIGHT || pos.z >= CELLS_DEPTH) {
     return false;
   }
-
   globalId = uvec3(pos);
-  
+
   uint blockIdx = getBlockIdx(globalId);
   uint localIdx = getLocalIdx(globalId);
 
   uint offsetBase128, offsetBase32, bitOffset;
   getLocalOffsets(localIdx, offsetBase128, offsetBase32, bitOffset);
 
-  uint bit = (voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32] >> bitOffset) & 1; 
+  uint bit = (GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32] >> bitOffset) & 1; 
   if (bit == 1) {
     uvec2 block = uvec2(
-      voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32 & ~1],
-      voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32 | 1]
+      GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32 & ~1],
+      GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32 | 1]
     );
 
     normal = vec3(0.0);
@@ -163,7 +183,7 @@ void CS_UploadVoxels() {
     uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = (localId.z + 4 * tileId.z) * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
-    uint val = batchUploadBuffer[texelIdx >> 1].u;
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1].u;
     val >>= 16 * ((texelIdx^1) & 1); 
     val &= 0xFFFF;
     float f = float(val) - float(CUTOFF_LO);
@@ -180,8 +200,8 @@ void CS_UploadVoxels() {
   uint offsetBase128, offsetBase32Start, bitOffset_unused;
   getLocalOffsets(localIdx, offsetBase128, offsetBase32Start, bitOffset_unused);
   
-  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start] = outVec[0];
-  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
+  GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32Start] = outVec[0];
+  GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
 }
 
 void CS_ClearBlocks() {
@@ -189,10 +209,10 @@ void CS_ClearBlocks() {
   if (blockIdx >= BLOCKS_COUNT)
     return;
   
-  voxelBuffer[blockIdx].bitfield[0] = uvec4(0);
-  voxelBuffer[blockIdx].bitfield[1] = uvec4(0);
-  voxelBuffer[blockIdx].bitfield[2] = uvec4(0);
-  voxelBuffer[blockIdx].bitfield[3] = uvec4(0);
+  GetVoxelBlock(blockIdx).bitfield[0] = uvec4(0);
+  GetVoxelBlock(blockIdx).bitfield[1] = uvec4(0);
+  GetVoxelBlock(blockIdx).bitfield[2] = uvec4(0);
+  GetVoxelBlock(blockIdx).bitfield[3] = uvec4(0);
 }
 
 void CS_GenVoxelsTest() {
@@ -214,8 +234,8 @@ void CS_GenVoxelsTest() {
   uint offsetBase128, offsetBase32Start, bitOffset_unused;
   getLocalOffsets(localIdx, offsetBase128, offsetBase32Start, bitOffset_unused);
   
-  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start] = outVec[0];
-  voxelBuffer[blockIdx].bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
+  GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32Start] = outVec[0];
+  GetVoxelBlock(blockIdx).bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
 }
 #endif // IS_COMP_SHADER
 
@@ -235,7 +255,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     // IN.uv += (randVec2(seed) - 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
-  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) != 0;
+  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) == 0;
   bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
   bool bDebugRender = bMeshletView || bDepthView;
 
@@ -248,7 +268,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
   }
 
   float f = dir.y;
-  outDisplay = vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
+  outDisplay = vec4(0.0.xxx, 1.0);//vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
   uvec3 globalId;
   float depth = 0.0;
   vec3 normal;
@@ -262,12 +282,76 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     dt *= 0.5;
   else
     iters *= 2;
+
+  {
+    vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
+    vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
+    curPos *= aspectRatio * dims;
+    dir *= aspectRatio * dims;
+    dir = normalize(dir);
+  }
+
+  // dda specific vars
+  ivec3 dda_mapPos = ivec3(0, 0, 0);
+  ivec3 dda_rayStep = ivec3(0, 0, 0);
+  vec3 dda_sideDist = 0.0.xxx;
+  vec3 dda_deltaDist = 0.0.xxx;
+  if (ENABLE_DDA)
+  {
+    curPos /= DDA_SCALE;
+    dda_mapPos = ivec3(floor(curPos));
+    dda_rayStep = ivec3(sign(dir));
+    
+    dda_deltaDist = abs(length(dir).xxx / dir);
+
+    dda_sideDist = (sign(dir) * (vec3(dda_mapPos) - curPos) + (sign(dir) * 0.5) + 0.5) * dda_deltaDist;
+    outDisplay = vec4(abs(dda_sideDist), 1.0);
+    // outDisplay = vec4(0.1 * abs(dda_rayUnitStepSize), 1.0);
+    // outDisplay = vec4(0.1 * abs(dda_rayLength), 1.0);
+    // return;
+  }
+
   for (iter = 0; iter < iters; iter++) {
-    depth += dt;
-    curPos = pos + dir * depth;
+    if (ENABLE_DDA) {
+      /*
+      if (all(lessThan(dda_rayLength.xx, dda_rayLength.yz))) {
+        curPos.x += dda_step.x;
+        dda_rayLength.x += dda_rayUnitStepSize.x;
+      } else if (all(lessThan(dda_rayLength.yy, dda_rayLength.xz))) {
+        curPos.y += dda_step.y;
+        dda_rayLength.y += dda_rayUnitStepSize.y;
+      } else {
+        curPos.z += dda_step.z;
+        dda_rayLength.z += dda_rayUnitStepSize.z;
+      }
+      */
+      /**/
+      bvec3 mask = lessThanEqual(dda_sideDist.xyz, min(dda_sideDist.yzx, dda_sideDist.zxy));
+			dda_sideDist += vec3(mask) * dda_deltaDist;
+      dda_mapPos += ivec3(vec3(mask)) * dda_rayStep;/**/
+
+      curPos = vec3(dda_mapPos);
+      // curPos += dir;
+    } else {
+      depth += dt;
+      curPos = pos + dir * depth;
+    }
     vec3 lightDir = getLightDir(curPos);
-    if (sampleBitField(curPos, globalId, normal)) {
-      if (bMeshletView) {
+    vec3 samplePos = curPos;
+    if (ENABLE_DDA)
+      samplePos = curPos * DDA_SCALE;
+    if (sampleBitField(samplePos, globalId, normal)) {
+      if (ENABLE_DDA) {
+        outDisplay = vec4(1.0, 0.0, 0.0, 1.0);
+        uvec2 meshletColorSeed = globalId.xy ^ globalId.yz;
+        // outDisplay = vec4(fract(2.5 * depth) * randVec3(meshletColorSeed), 1.0);
+        outDisplay = vec4(randVec3(meshletColorSeed), 1.0);
+        // outDisplay = vec4(fract(0.01 * length(pos - curPos)).xxx, 1.0);
+        return;
+      }
+      // if (bMeshletView) 
+      if (ENABLE_DDA)
+      {
         // meshlet coloring
         uvec2 meshletColorSeed = globalId.xy ^ globalId.yz;
         // outDisplay = vec4(fract(2.5 * depth) * randVec3(meshletColorSeed), 1.0);
@@ -280,21 +364,28 @@ void PS_RayMarchVoxels(VertexOutput IN) {
         break;
       }
       
-      float phase = phaseFunction(dot(lightDir, dir), G);
+      float phase = phaseFunction(abs(dot(lightDir, dir)), G);
       vec3 Li = raymarchLight(curPos, true, LIGHT_ITERS, LIGHT_DT);
       color += throughput * Li * phase;
       throughput *= exp(-DENSITY * DT);
-      if (dot(throughput, throughput) < 0.0001)
+      if (dot(throughput, throughput) < 0.0001) {
+        throughput = 0.0.xxx;
         break;
+      }
     }
 
-    if (curPos.y <= -1.5) {
-      float phase = max(lightDir.y, 0.0);
-      vec3 Li = raymarchLight(curPos, false, 44, 0.045);
-      color += FLOOR_REFL * throughput * Li * phase;
-      throughput = 0.0.xxx;
-      break;
-    }
+    // if (curPos.y <= -1.5) {
+    //   float phase = max(lightDir.y, 0.0);
+    //   vec3 Li = raymarchLight(curPos, false, 44, 0.045);
+    //   color += FLOOR_REFL * throughput * Li * phase;
+    //   throughput = 0.0.xxx;
+    //   break;
+    // }
+  }
+
+  if (ENABLE_DDA) {
+    outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
+    return;
   }
 
   if (!bDebugRender && curPos.y > -1.5 && dir.y < 0.0) {

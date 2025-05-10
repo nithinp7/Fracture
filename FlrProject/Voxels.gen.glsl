@@ -1,7 +1,7 @@
 #version 460 core
 
-#define SCREEN_WIDTH 2560
-#define SCREEN_HEIGHT 1334
+#define SCREEN_WIDTH 1440
+#define SCREEN_HEIGHT 1280
 #define BLOCKS_WIDTH 200
 #define BLOCKS_HEIGHT 200
 #define BLOCKS_DEPTH 400
@@ -10,8 +10,10 @@
 #define CELLS_HEIGHT 1600
 #define CELLS_DEPTH 3200
 #define CELLS_COUNT 3897032704
-#define BATCH_SIZE 16
-#define UPLOAD_BATCH_SIZE_BASE32 33488928
+#define VOXEL_SUB_BUFFER_COUNT 8
+#define VOXEL_SUB_BUFFER_SIZE 2000000
+#define BATCH_SIZE 8
+#define UPLOAD_BATCH_SIZE_BASE32 16744464
 
 struct Block {
   uvec4 bitfield[4];
@@ -25,8 +27,10 @@ struct VertexOutput {
   vec2 uv;
 };
 
-layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block voxelBuffer[]; };
-layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint batchUploadBuffer[]; };
+layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [8];
+#define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
+layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
+#define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
 
 layout(set=1, binding=3) uniform _UserUniforms {
 	uint CUTOFF_LO;
@@ -34,6 +38,8 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	uint ITERS;
 	uint LIGHT_ITERS;
 	float DENSITY;
+	float CROSS_SECTION_START;
+	float CROSS_SECTION_END;
 	float G;
 	float FLOOR_REFL;
 	float LIGHT_INTENSITY;
@@ -42,12 +48,14 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	float SHADOW_SOFTNESS;
 	float DT;
 	float LIGHT_DT;
+	float DDA_SCALE;
 	float FREQ_A;
 	float FREQ_B;
 	float AMPL;
 	float OFFS;
 	bool LIGHT_ANIM;
 	bool ENABLE_JITTER;
+	bool ENABLE_DDA;
 	bool ENABLE_STAGGERED_STREAMING;
 };
 

@@ -4,6 +4,8 @@ enable_feature: perspective_camera
 slider_float DENSITY: 20.0 1.0 50.0
 slider_uint CUTOFF_LO: 17000 0 65535
 slider_uint CUTOFF_HI: 65535 0 65535
+slider_float CROSS_SECTION_START: 0.0 0.0 1.0
+slider_float CROSS_SECTION_END: 1.0 0.0 1.0
 
 ui_dropdown_start LIGHTS
   slider_float G: 0.65 -1.0 1.0
@@ -21,6 +23,8 @@ ui_dropdown_start SAMPLING
   slider_uint LIGHT_ITERS: 55 4 100
   slider_float LIGHT_DT: 0.01 0.001 0.1
   checkbox ENABLE_JITTER: true
+  checkbox ENABLE_DDA: false
+  slider_float DDA_SCALE: 128.0 1.0 256.0
 ui_dropdown_end
 
 checkbox ENABLE_STAGGERED_STREAMING: true
@@ -47,15 +51,17 @@ struct Block {
 }
 struct_size: 64
 
-structured_buffer voxelBuffer: Block BLOCKS_COUNT
+uint VOXEL_SUB_BUFFER_COUNT: 8
+uint VOXEL_SUB_BUFFER_SIZE: BLOCKS_COUNT/VOXEL_SUB_BUFFER_COUNT
+structured_buffer voxelBuffer(VOXEL_SUB_BUFFER_COUNT): Block VOXEL_SUB_BUFFER_SIZE
 
 struct Uint {
   uint u;
 }
 struct_size: 4
-uint BATCH_SIZE: 16
+uint BATCH_SIZE: 8
 uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 2 * BATCH_SIZE / 4
-structured_buffer batchUploadBuffer: Uint UPLOAD_BATCH_SIZE_BASE32
+structured_buffer batchUploadBuffer(2): Uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
 
 display_image DisplayImage
