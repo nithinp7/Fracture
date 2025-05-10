@@ -87,15 +87,12 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
   }
   
   if (m_curSlice < m_numSlices) {
-    BufferAllocation* uploadBuffer = project->getBufferAlloc(m_uploadBuffer);
+    BufferAllocation* uploadBuffer = project->getBufferAlloc(m_uploadBuffer, flr::Fluorescence::getFrameCount() & 1);
     assert(uploadBuffer);
 
     for (; m_curSlice < m_numSlices; m_curSlice += m_batchSize)
     {
       restreamBatch();
-
-      // TODO: double buffer the upload memory
-      vkQueueWaitIdle(flr::GApplication->getGraphicsQueue());
 
       void* dst = uploadBuffer->mapMemory();
       uint32_t sliceByteSize = 2 * m_sliceWidth * m_sliceHeight;
