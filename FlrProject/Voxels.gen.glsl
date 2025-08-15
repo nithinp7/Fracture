@@ -2,18 +2,49 @@
 
 #define SCREEN_WIDTH 1440
 #define SCREEN_HEIGHT 1280
-#define BLOCKS_WIDTH 200
-#define BLOCKS_HEIGHT 200
-#define BLOCKS_DEPTH 400
-#define BLOCKS_COUNT 16000000
-#define CELLS_WIDTH 1600
-#define CELLS_HEIGHT 1600
-#define CELLS_DEPTH 3200
-#define CELLS_COUNT 3897032704
-#define VOXEL_SUB_BUFFER_COUNT 8
-#define VOXEL_SUB_BUFFER_SIZE 2000000
+#define NUM_LEVELS 4
+#define BR_FACTOR_LOG2 3
+#define BR_FACTOR 8
+#define L3_BLOCKS_DIM_X 1
+#define L3_BLOCKS_DIM_Y 1
+#define L3_BLOCKS_DIM_Z 2
+#define L2_BLOCKS_DIM_X 8
+#define L2_BLOCKS_DIM_Y 8
+#define L2_BLOCKS_DIM_Z 16
+#define L1_BLOCKS_DIM_X 64
+#define L1_BLOCKS_DIM_Y 64
+#define L1_BLOCKS_DIM_Z 128
+#define L0_BLOCKS_DIM_X 512
+#define L0_BLOCKS_DIM_Y 512
+#define L0_BLOCKS_DIM_Z 1024
+#define L3_NUM_BLOCKS 2
+#define L2_NUM_BLOCKS 1024
+#define L1_NUM_BLOCKS 524288
+#define L0_NUM_BLOCKS 268435456
+#define TOTAL_NUM_BLOCKS 268960770
+#define CELLS_WIDTH 4096
+#define CELLS_HEIGHT 4096
+#define CELLS_DEPTH 8192
+#define BITS_PER_BLOCK 256
+#define VOXEL_SUB_BUFFER_COUNT 16
+#define VOXEL_SUB_BUFFER_SIZE 16810048
 #define BATCH_SIZE 8
 #define UPLOAD_BATCH_SIZE_BASE32 16744464
+
+struct IndexedIndirectArgs {
+  uint indexCount;
+  uint instanceCount;
+  uint firstIndex;
+  uint vertexOffset;
+  uint firstInstance;
+};
+
+struct IndirectArgs {
+  uint vertexCount;
+  uint instanceCount;
+  uint firstVertex;
+  uint firstInstance;
+};
 
 struct Block {
   uvec4 bitfield[4];
@@ -27,7 +58,7 @@ struct VertexOutput {
   vec2 uv;
 };
 
-layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [8];
+layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [16];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
 layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
@@ -35,6 +66,8 @@ layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUplo
 layout(set=1, binding=3) uniform _UserUniforms {
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
+	uint DDA_LEVEL;
+	uint RENDER_MODE;
 	uint ITERS;
 	uint LIGHT_ITERS;
 	float DENSITY;
@@ -46,27 +79,24 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	float LIGHT_THETA;
 	float LIGHT_PHI;
 	float SHADOW_SOFTNESS;
+	float DDA_SCALE;
 	float DT;
 	float LIGHT_DT;
-	float DDA_SCALE;
-	float FREQ_A;
-	float FREQ_B;
-	float AMPL;
-	float OFFS;
 	bool LIGHT_ANIM;
-	bool ENABLE_JITTER;
 	bool ENABLE_DDA;
+	bool ENABLE_JITTER;
 	bool ENABLE_STAGGERED_STREAMING;
 };
 
-#include <Fluorescence.glsl>
+#include <FlrLib/Fluorescence.glsl>
 
 layout(set=1, binding=4) uniform _CameraUniforms { PerspectiveCamera camera; };
 
 
 
 #ifdef IS_PIXEL_SHADER
-#ifdef _ENTRY_POINT_PS_RayMarchVoxels
+#if defined(_ENTRY_POINT_PS_RayMarchVoxels) && !defined(_ENTRY_POINT_PS_RayMarchVoxels_ATTACHMENTS)
+#define _ENTRY_POINT_PS_RayMarchVoxels_ATTACHMENTS
 layout(location = 0) out vec4 outDisplay;
 #endif // _ENTRY_POINT_PS_RayMarchVoxels
 #endif // IS_PIXEL_SHADER
@@ -77,14 +107,14 @@ layout(location = 0) out vec4 outDisplay;
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main() { CS_UploadVoxels(); }
 #endif // _ENTRY_POINT_CS_UploadVoxels
+#ifdef _ENTRY_POINT_CS_GenAccelerationBuffer
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main() { CS_GenAccelerationBuffer(); }
+#endif // _ENTRY_POINT_CS_GenAccelerationBuffer
 #ifdef _ENTRY_POINT_CS_ClearBlocks
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 void main() { CS_ClearBlocks(); }
 #endif // _ENTRY_POINT_CS_ClearBlocks
-#ifdef _ENTRY_POINT_CS_GenVoxelsTest
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
-void main() { CS_GenVoxelsTest(); }
-#endif // _ENTRY_POINT_CS_GenVoxelsTest
 #endif // IS_COMP_SHADER
 
 
@@ -97,7 +127,8 @@ void main() { _VERTEX_OUTPUT = VS_RayMarchVoxels(); }
 
 
 #ifdef IS_PIXEL_SHADER
-#ifdef _ENTRY_POINT_PS_RayMarchVoxels
+#if defined(_ENTRY_POINT_PS_RayMarchVoxels) && !defined(_ENTRY_POINT_PS_RayMarchVoxels_INTERPOLANTS)
+#define _ENTRY_POINT_PS_RayMarchVoxels_INTERPOLANTS
 layout(location = 0) in VertexOutput _VERTEX_INPUT;
 void main() { PS_RayMarchVoxels(_VERTEX_INPUT); }
 #endif // _ENTRY_POINT_PS_RayMarchVoxels

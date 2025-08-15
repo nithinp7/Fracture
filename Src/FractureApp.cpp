@@ -18,14 +18,13 @@ void FractureApp::createDescriptors(ResourcesAssignment& assignment) {
 }
 
 void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuffer& commandBuffer) {
-  m_blockCount = *project->getConstUint("BLOCKS_COUNT");
-  m_cellsCount = *project->getConstUint("CELLS_COUNT");
   m_cellsDepth = *project->getConstUint("CELLS_DEPTH");
   m_batchSize = *project->getConstUint("BATCH_SIZE");
   m_uploadBuffer = project->findBuffer("batchUploadBuffer");
   m_voxelBuffer = project->findBuffer("voxelBuffer");
   m_clearVoxelsCS = project->findComputeShader("CS_ClearBlocks");
   m_uploadVoxelsCS = project->findComputeShader("CS_UploadVoxels");
+  m_genAccelerationBufferCS = project->findComputeShader("CS_GenAccelerationBuffer");
 
   // TODO: hook up windows open-file dialogue
   const char* folderPath = "C:/Users/nithi/Documents/Data/CT_Scans/Bison/SCAN/AMNH-Mammals-232575-000649595/AMNH-mammals-232575";
@@ -62,7 +61,7 @@ void FractureApp::restreamBatch() {
 
   m_slicesImageData.resize(m_batchSize);
 
-  for (uint32_t i = 0; i < m_batchSize; i++) {
+  for (uint32_t i = 0; i < m_batchSize && (m_curSlice + i) < m_numSlices; i++) {
     sprintf(filePath, "%s/AMNH-mammals-232575_%04d.tif", folderPath, m_curSlice + i);
 
     auto& imgResult = m_slicesImageData[i];
@@ -73,11 +72,11 @@ void FractureApp::restreamBatch() {
 }
 
 void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, const FrameContext& frame) {
-  auto cutoffLo = project->getSliderUintValue("CUTOFF_LO");
+  auto cutoffLo = project->getSliderUint("CUTOFF_LO");
   assert(cutoffLo);
-  auto cutoffHi = project->getSliderUintValue("CUTOFF_HI");
+  auto cutoffHi = project->getSliderUint("CUTOFF_HI");
   assert(cutoffHi);
-  auto bStaggeredStreaming = project->getCheckBoxValue("ENABLE_STAGGERED_STREAMING");
+  auto bStaggeredStreaming = project->getCheckBox("ENABLE_STAGGERED_STREAMING");
   assert(bStaggeredStreaming);
 
   if (*cutoffLo != m_cutoffLo || *cutoffHi != m_cutoffHi) {
@@ -104,6 +103,8 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
       project->setPushConstants(m_sliceWidth, m_sliceHeight, m_curSlice);
       project->dispatchThreads(m_uploadVoxelsCS, m_sliceWidth / 4, m_sliceHeight / 4, i / 4, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
+      project->dispatchThreads(m_genAccelerationBufferCS, m_sliceWidth/8/4, m_sliceHeight/8/4, 2, commandBuffer, frame);
+      project->barrierRW(m_voxelBuffer, commandBuffer); // TODO - do this part atomically...
       
       if (*bStaggeredStreaming) {
         m_curSlice += i;
