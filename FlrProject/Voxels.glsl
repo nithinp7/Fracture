@@ -140,6 +140,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
   
   bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) != 0;
   bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
+  bool bIterHeatView = (uniforms.inputMask & INPUT_BIT_I) != 0;
   // bool bDebugRender = bMeshletView || bDepthView;
 
   float SCALE = 0.01;
@@ -172,10 +173,13 @@ void PS_RayMarchVoxels(VertexOutput IN) {
       vec3 pos = startPos + t * dir;
       ivec3 globalId = ivec3(pos) >> (BR_FACTOR_LOG2 * DDA_LEVEL);
       if (getBit(DDA_LEVEL, globalId)) {
-        // outDisplay = vec4(1.0, 0.0, 0.0, 1.0);
-        outDisplay = vec4(fract(t/20.0).xxx, 1.0);
-        if (bMeshletView)
+        if (bMeshletView) {
           outDisplay = vec4(getCellColor(globalId), 1.0);
+        } else if (bDepthView) {            
+          outDisplay = vec4(fract(t * 0.01).xxx, 1.0);
+        } else /*if (bIterHeatView)*/ {
+          outDisplay = vec4((float(iter)/ITERS).xxx, 1.0);
+        } 
         return;
       }
     }
@@ -208,7 +212,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
         } else if (STEP_DOWN) {
           prevDdaT += dda.globalT;
           vec3 eps = 0.0.xxx;
-          eps[stepAxis] = 0.0001;
+          eps[stepAxis] = dda.sn[stepAxis] * 0.001;
           dda = createDDA(pos + eps, dir, dda.level-1);
         } else {
           bHit = true;
@@ -216,10 +220,14 @@ void PS_RayMarchVoxels(VertexOutput IN) {
 
         if (bHit) {
           float dist = length(pos - startPos);
-          if (bMeshletView)
+          if (bMeshletView) {
             outDisplay = vec4(getCellColor(globalId), 1.0);
-          else //if (bDepthView)
+          } else if (bDepthView) {
             outDisplay = vec4(fract(dist * 0.01).xxx, 1.0);
+          } else /*if (bIterHeatView)*/ {
+            outDisplay = vec4((float(iter)/ITERS).xxx, 1.0);
+          } 
+
           return;
         }
       } else if (
@@ -228,7 +236,7 @@ void PS_RayMarchVoxels(VertexOutput IN) {
           !getBit(dda.level+1, globalId >> BR_FACTOR_LOG2)) {
         prevDdaT += dda.globalT;
         vec3 eps = 0.0.xxx;
-        eps[stepAxis] = 0.0001;
+        eps[stepAxis] = dda.sn[stepAxis] * 0.001;
         dda = createDDA(getCurrentPos(dda) + eps, dir, dda.level+1);
       } else {
         stepDDA(dda, stepAxis);

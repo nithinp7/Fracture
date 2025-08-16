@@ -26,8 +26,8 @@
 #define CELLS_HEIGHT 4096
 #define CELLS_DEPTH 8192
 #define BITS_PER_BLOCK 256
-#define VOXEL_SUB_BUFFER_COUNT 8
-#define VOXEL_SUB_BUFFER_SIZE 33620097
+#define VOXEL_SUB_BUFFER_COUNT 16
+#define VOXEL_SUB_BUFFER_SIZE 16810049
 #define BATCH_SIZE 8
 #define UPLOAD_BATCH_SIZE_BASE32 16744464
 
@@ -58,7 +58,7 @@ struct VertexOutput {
   vec2 uv;
 };
 
-layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [8];
+layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [16];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
 layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer

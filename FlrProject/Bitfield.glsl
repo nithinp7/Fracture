@@ -83,9 +83,6 @@ bool getBit(uint level, ivec3 globalId) {
 }
 
 void setParentsAtomic(uvec3 globalId) {
-  uvec3 gridDims = getGridDims(0);
-  uvec3 blockDims = getBlockDims(0);
-
   for (uint level = 1; level < NUM_LEVELS; level++) {
     VoxelAddr addr = constructVoxelAddr(level, globalId >> (BR_FACTOR_LOG2 * level));
     atomicOr(GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32], 1 << addr.bitOffset);

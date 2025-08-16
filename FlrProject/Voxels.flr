@@ -31,7 +31,7 @@ ui_dropdown_start HDDA
   checkbox LOD_CUTOFFS: true
   checkbox LOD_JITTER: true
   slider_float LOD_SCALE: 1.0 0.1 2.0
-  slider_uint DDA_LEVEL: 1 0 3
+  slider_uint DDA_LEVEL: 3 0 3
   slider_uint RENDER_MODE: 1 0 1
 ui_dropdown_end
 
@@ -97,7 +97,7 @@ struct Block {
 }
 struct_size: 64
 
-uint VOXEL_SUB_BUFFER_COUNT: 8
+uint VOXEL_SUB_BUFFER_COUNT: 16
 uint VOXEL_SUB_BUFFER_SIZE: (TOTAL_NUM_BLOCKS+VOXEL_SUB_BUFFER_COUNT-1)/VOXEL_SUB_BUFFER_COUNT
 structured_buffer voxelBuffer(VOXEL_SUB_BUFFER_COUNT): Block VOXEL_SUB_BUFFER_SIZE
 
