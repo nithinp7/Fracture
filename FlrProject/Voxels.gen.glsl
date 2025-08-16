@@ -26,8 +26,8 @@
 #define CELLS_HEIGHT 4096
 #define CELLS_DEPTH 8192
 #define BITS_PER_BLOCK 256
-#define VOXEL_SUB_BUFFER_COUNT 16
-#define VOXEL_SUB_BUFFER_SIZE 16810048
+#define VOXEL_SUB_BUFFER_COUNT 8
+#define VOXEL_SUB_BUFFER_SIZE 33620097
 #define BATCH_SIZE 8
 #define UPLOAD_BATCH_SIZE_BASE32 16744464
 
@@ -58,7 +58,7 @@ struct VertexOutput {
   vec2 uv;
 };
 
-layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [16];
+layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [8];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
 layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
@@ -79,11 +79,14 @@ layout(set=1, binding=3) uniform _UserUniforms {
 	float LIGHT_THETA;
 	float LIGHT_PHI;
 	float SHADOW_SOFTNESS;
-	float DDA_SCALE;
+	float LOD_SCALE;
 	float DT;
 	float LIGHT_DT;
 	bool LIGHT_ANIM;
-	bool ENABLE_DDA;
+	bool STEP_UP;
+	bool STEP_DOWN;
+	bool LOD_CUTOFFS;
+	bool LOD_JITTER;
 	bool ENABLE_JITTER;
 	bool ENABLE_STAGGERED_STREAMING;
 };

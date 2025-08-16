@@ -106,10 +106,6 @@ void CS_UploadVoxels() {
       setParentsAtomic(globalId + localId); // TODO - do this in a separate pass, for less atomic contention?
     }
   }
-
-  // TODO - only for testing
-  // if (outVec[0] != 0 || outVec[1] != 0)
-    // outVec[0] = outVec[1] = ~0;
   
   VoxelAddr addr = constructVoxelAddr(0, globalIdStart);
   GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32] = outVec[0];
@@ -172,8 +168,6 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     // Classical fixed-step raymarcher
     float t = 0.0;
     for (int iter=0; iter<ITERS; iter++) {
-      // uint stepAxis;
-      // stepDDA(dda, stepAxis);
       t += 100.0 * DT;
       vec3 pos = startPos + t * dir;
       ivec3 globalId = ivec3(pos) >> (BR_FACTOR_LOG2 * DDA_LEVEL);
@@ -186,214 +180,60 @@ void PS_RayMarchVoxels(VertexOutput IN) {
       }
     }
   } else if (RENDER_MODE == 1) {
-    // DDA raymarcher - TODO
+    // HDDA raymarcher
 
-    // TODO eventually use cutoffs to process hits in lower lods past certain cutoff distances...
-    float distCutoffs[NUM_LEVELS] = { 0.0, 10.0, 100.0, 200.0 };
+    float lodCutoffs[NUM_LEVELS] = { 1.0, 5.0, 24.0, 1000. };
+    // uint iterCutoffs[NUM_LEVELS] = { 0.0, 10.0, 100.0, 200.0 };
 
-    // TODO: add ability to shift back up in lod as well...
-    
+    // TODO - step-up logic not working   
+    uint lodClamp = 0;
+
     DDA dda = createDDA(startPos, dir, DDA_LEVEL);
+    uint stepAxis = 0;
+    float prevDdaT = 0.0;
+    // TODO - standardize lod-scale jitter...
+    if (LOD_JITTER)
+      prevDdaT += 100*rng(seed);
     for (int iter=0; iter<ITERS; iter++) {
+      float t = prevDdaT + dda.globalT;
+      if (LOD_CUTOFFS && t > lodCutoffs[lodClamp]*LOD_SCALE*1000 && lodClamp < NUM_LEVELS)
+        lodClamp++;
+
       ivec3 globalId = dda.coord >> (BR_FACTOR_LOG2 * dda.level);
       if (getBit(dda.level, globalId)) {
+        bool bHit = false;
         vec3 pos = getCurrentPos(dda);
-        if (dda.level > 0) {
-          dda = createDDA(pos+0.01*dir, dir, dda.level-1);
+        if (dda.level <= lodClamp) {
+          bHit = true;
+        } else if (STEP_DOWN) {
+          prevDdaT += dda.globalT;
+          vec3 eps = 0.0.xxx;
+          eps[stepAxis] = 0.0001;
+          dda = createDDA(pos + eps, dir, dda.level-1);
         } else {
+          bHit = true;
+        }
+
+        if (bHit) {
+          float dist = length(pos - startPos);
           if (bMeshletView)
             outDisplay = vec4(getCellColor(globalId), 1.0);
           else //if (bDepthView)
-            outDisplay = vec4(fract(dda.globalT * 0.01).xxx, 1.0);
+            outDisplay = vec4(fract(dist * 0.01).xxx, 1.0);
           return;
         }
+      } else if (
+          STEP_UP &&
+          dda.level < (NUM_LEVELS-1) &&
+          !getBit(dda.level+1, globalId >> BR_FACTOR_LOG2)) {
+        prevDdaT += dda.globalT;
+        vec3 eps = 0.0.xxx;
+        eps[stepAxis] = 0.0001;
+        dda = createDDA(getCurrentPos(dda) + eps, dir, dda.level+1);
       } else {
-        uint stepAxis;
         stepDDA(dda, stepAxis);
       }
     }
   }
 }
-
-
-/*
-
-void PS_RayMarchVoxels_OLD(VertexOutput IN) {
-  seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
-  if (ENABLE_JITTER) {
-    // IN.uv += (randVec2(seed) - 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
-  }
-
-  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) == 0;
-  bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
-  bool bDebugRender = bMeshletView || bDepthView;
-
-  vec3 dir = computeDir(IN.uv);
-  vec3 pos = camera.inverseView[3].xyz;
-  if (!bDebugRender)
-    pos += 0.25 * dir;
-  if (!bMeshletView && ENABLE_JITTER) {
-    pos += (rng(seed)) * dir * DT;
-  }
-
-  float f = dir.y;
-  outDisplay = vec4(0.0.xxx, 1.0);//vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
-  uvec3 globalId;
-  float depth = 0.0;
-  vec3 normal;
-  int iter = 0;
-  vec3 throughput = 1.0.xxx;
-  vec3 color = 0.0.xxx;
-  vec3 curPos = pos;
-  float dt = DT;
-  uint iters = ITERS;
-  if (bMeshletView)
-    dt *= 0.5;
-  else
-    iters *= 2;
-
-  {
-    vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
-    vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
-    curPos *= aspectRatio * dims;
-    dir *= aspectRatio * dims;
-    dir = normalize(dir);
-  }
-
-  DDA dda;
-  if (ENABLE_DDA)
-  {
-    // if (DDA_LEVEL == 0)
-    //   curPos /= 8.0;
-    curPos /= DDA_SCALE;
-    dda = createDDA(curPos, dir, 0);
-  }
-
-  vec3 startPos = curPos;
-
-  bool bMultiLevel = false;
-  bool bTestLevelSwitch = false;
-  uint ddaLevel = DDA_LEVEL;
-  for (iter = 0; iter < iters; iter++) {
-    if (ENABLE_DDA) {
-      {
-        uint stepAxis;
-        stepDDA(dda, stepAxis);
-        curPos = vec3(dda.coord);
-      }
-    } else {
-      depth += dt;
-      curPos = pos + dir * depth;
-    }
-    vec3 lightDir = getLightDir(curPos);
-    vec3 samplePos = curPos;
-    if (ENABLE_DDA)
-      samplePos = curPos * DDA_SCALE;
-    bool bSampleResult = false;
-
-    if (ddaLevel == 0) {
-      bSampleResult = sampleAccelerationBitField(samplePos, globalId, normal);
-    } else {
-      bSampleResult = sampleBitField(samplePos, globalId, normal);
-      if (RENDER_MODE == 1)
-        globalId /= 8;
-    }
-    if (bSampleResult) {
-      if (ENABLE_DDA) {
-        outDisplay = vec4(1.0, 0.0, 0.0, 1.0);
-        uvec2 meshletColorSeed = globalId.xy ^ globalId.yz;
-        // outDisplay = vec4(fract(2.5 * depth) * randVec3(meshletColorSeed), 1.0);
-        outDisplay = vec4(randVec3(meshletColorSeed), 1.0);
-        // outDisplay = vec4(fract(0.01 * length(pos - curPos)).xxx, 1.0);
-        return;
-      }
-      // if (bMeshletView) 
-      if (ENABLE_DDA)
-      {
-        // meshlet coloring
-        uvec2 meshletColorSeed = globalId.xy ^ globalId.yz;
-        float depth = length(curPos - pos);
-        outDisplay = vec4(fract(2.5 * depth) * randVec3(meshletColorSeed), 1.0);
-        // outDisplay = vec4(randVec3(meshletColorSeed), 1.0);
-        break;
-      } else if (bDepthView) {
-        // depth coloring
-        // outDisplay = vec4(depth.xxx, 1.0);
-        outDisplay = vec4(fract(2.5 * depth).xxx, 1.0);
-        break;
-      }
-      
-      float phase = phaseFunction(abs(dot(lightDir, dir)), G);
-      vec3 Li = raymarchLight(curPos, true, LIGHT_ITERS, LIGHT_DT);
-      color += throughput * Li * phase;
-      throughput *= exp(-DENSITY * DT);
-      if (dot(throughput, throughput) < 0.0001) {
-        throughput = 0.0.xxx;
-        break;
-      }
-    }
-
-    // if (curPos.y <= -1.5) {
-    //   float phase = max(lightDir.y, 0.0);
-    //   vec3 Li = raymarchLight(curPos, false, 44, 0.045);
-    //   color += FLOOR_REFL * throughput * Li * phase;
-    //   throughput = 0.0.xxx;
-    //   break;
-    // }
-  }
-
-  if (ENABLE_DDA) {
-    outDisplay = vec4(0.5 * dir + 0.5.xxx, 1.0);
-    return;
-  }
-
-  if (!bDebugRender && curPos.y > -1.5 && dir.y < 0.0) {
-    float u = (-1.5 - curPos.y)/dir.y;
-    curPos += u * dir;
-    vec3 lightDir = getLightDir(curPos);
-    float phase = max(lightDir.y, 0.0);
-    vec3 Li = raymarchLight(curPos, false, 44, 0.045);
-    color += FLOOR_REFL * throughput * Li * phase;
-    outDisplay.rgb = 0.0.xxx;
-  }
-
-  outDisplay.rgb *= throughput;
-  outDisplay.rgb += color;
-
-  /*
-  if (iter < ITERS) 
-  {
-    float dx = dFdx(depth);
-    float dy = dFdx(depth);
-    globalId >>= 8;
-    uvec2 seed = globalId.xz ^ globalId.zx;
-    vec3 col = randVec3(seed);
-    // col *= exp(-0.1 * depth * depth);
-    // outDisplay = vec4(col, 1.0);
-    // outDisplay = vec4(10.0 * sqrt(dx * dx + dy * dy).xxx, 1.0);
-    vec3 lightDir = normalize(1.0.xxx);
-    col *= max(dot(lightDir, normal), 0.0) + 0.1.xxx;
-    outDisplay = vec4(col, 1.0);
-  }* /
-
-  /*
-  if ((uniforms.inputMask & INPUT_BIT_T) != 0) 
-  {
-    uint curslice = 50;
-    uvec2 texel = uvec2(vec2(1530, 1805) * IN.uv * 0.999);
-    uint texelIdx = (1530 * 1805 * (curslice & 7) + texel.y * 1530 + texel.x);
-    uint val = batchUploadBuffer[texelIdx >> 1].u;
-    if (bool(texelIdx & 1))
-      val >>= 16;
-    else
-      val &= 0xFFFF;
-    float f = float(val) - float(CUTOFF_LO);
-    f /= float(CUTOFF_HI - CUTOFF_LO);
-    if (f > 1.0 || f < 0.0)
-      f = 0.0;
-    outDisplay = vec4(f.xxx, 1.0);
-  }* /
-}
-*/
-
 #endif // IS_PIXEL_SHADER
