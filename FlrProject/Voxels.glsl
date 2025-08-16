@@ -5,6 +5,11 @@
 
 uvec2 seed;
 
+vec3 getCellColor(ivec3 coord) {
+  uvec2 meshletSeed = uvec2(coord.x ^ coord.z, coord.x ^ coord.y);
+  return randVec3(meshletSeed);
+}
+
 float phaseFunction(float cosTheta, float g) {
   float g2 = g * g;
   return  
@@ -88,59 +93,31 @@ void CS_UploadVoxels() {
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = (localId.z + 4 * tileId.z) * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
     uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1].u;
-    val >>= 16 * ((texelIdx^1) & 1); 
+    val >>= 16 * ((texelIdx) & 1); 
     val &= 0xFFFF;
     float f = float(val) - float(CUTOFF_LO);
     f /= float(CUTOFF_HI - CUTOFF_LO);
     if (f < 0.0 || f > 1.0) {
       f = 0.0;
-    } else if (f > 0.0) {
+    }
+    
+    if (f > 0.0) {
       outVec[i >> 5] |= 1 << (i & 31);
       setParentsAtomic(globalId + localId); // TODO - do this in a separate pass, for less atomic contention?
     }
   }
 
+  // TODO - only for testing
+  // if (outVec[0] != 0 || outVec[1] != 0)
+    // outVec[0] = outVec[1] = ~0;
+  
   VoxelAddr addr = constructVoxelAddr(0, globalIdStart);
   GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32] = outVec[0];
   GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32+1] = outVec[1];
 }
 
-void CS_GenAccelerationBuffer() {
-  /*
-  uint sliceOffset = push2;
-
-  uvec3 tileId = gl_GlobalInvocationID.xyz;
-  if (tileId.x >= BLOCKS_WIDTH/4 || tileId.y >= BLOCKS_HEIGHT/4) {
-    return;
-  }
-
-  uvec3 blockIdStart = 4 * (tileId + uvec3(0, 0, sliceOffset/8/4));
-  uvec2 outVec = uvec2(0);
-  for (uint i = 0; i < 64; i++) {
-    uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
-    uint blockIdx = flattenBlockId(blockIdStart + localId);
-    Block block = GetVoxelBlock(blockIdx);
-    if (block.bitfield[0] != uvec4(0) ||
-        block.bitfield[1] != uvec4(0) ||
-        block.bitfield[2] != uvec4(0) ||
-        block.bitfield[3] != uvec4(0)) {
-      outVec[i >> 5] |= 1 << (i & 31);
-    }
-  }
-
-  uint accelBlockIdx = getAccelBlockIdx(blockIdStart);
-  uint accelLocalIdx = getLocalIdx(blockIdStart);
-
-  uint offsetBase128, offsetBase32Start, bitOffset_unused;
-  getLocalOffsets(accelLocalIdx, offsetBase128, offsetBase32Start, bitOffset_unused);
-  
-  accelerationBuffer[accelBlockIdx].bitfield[offsetBase128][offsetBase32Start] = outVec[0];
-  accelerationBuffer[accelBlockIdx].bitfield[offsetBase128][offsetBase32Start+1] = outVec[1];
-  */
-}
-
 void CS_ClearBlocks() {
-  uint blockIdx = gl_GlobalInvocationID.x;
+  uint blockIdx = gl_GlobalInvocationID.x + push0;
   if (blockIdx >= TOTAL_NUM_BLOCKS)
     return;
   
@@ -165,14 +142,17 @@ VertexOutput VS_RayMarchVoxels() {
 void PS_RayMarchVoxels(VertexOutput IN) {
   seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
   
-  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) == 0;
+  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) != 0;
   bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
-  bool bDebugRender = bMeshletView || bDepthView;
+  // bool bDebugRender = bMeshletView || bDepthView;
+
+  float SCALE = 0.01;
 
   vec3 dir = computeDir(IN.uv);
-  vec3 startPos = camera.inverseView[3].xyz;
-  if (!bDebugRender)
-    startPos += 0.25 * dir;
+  vec3 startPos = SCALE * camera.inverseView[3].xyz;
+
+  // if (!bDebugRender)
+    // startPos += 0.25 * dir;
   if (!bMeshletView && ENABLE_JITTER) {
     startPos += (rng(seed)) * dir * DT;
   }
@@ -188,11 +168,9 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     dir = normalize(dir);
   }
 
-  // DDA dda = createDDA(curPos, dir, 0);
-  float t = 0.0;
-
   if (RENDER_MODE == 0) {
     // Classical fixed-step raymarcher
+    float t = 0.0;
     for (int iter=0; iter<ITERS; iter++) {
       // uint stepAxis;
       // stepDDA(dda, stepAxis);
@@ -200,20 +178,40 @@ void PS_RayMarchVoxels(VertexOutput IN) {
       vec3 pos = startPos + t * dir;
       ivec3 globalId = ivec3(pos) >> (BR_FACTOR_LOG2 * DDA_LEVEL);
       if (getBit(DDA_LEVEL, globalId)) {
-        uvec2 meshletSeed = uvec2(globalId.x ^ globalId.z, globalId.x ^ globalId.y);
         // outDisplay = vec4(1.0, 0.0, 0.0, 1.0);
         outDisplay = vec4(fract(t/20.0).xxx, 1.0);
         if (bMeshletView)
-          outDisplay = vec4(randVec3(meshletSeed), 1.0);
+          outDisplay = vec4(getCellColor(globalId), 1.0);
         return;
       }
     }
   } else if (RENDER_MODE == 1) {
     // DDA raymarcher - TODO
-    // DDA dda = createDDA(startPos, dir, DDA_LEVEL);
-    // for (int iter=0; iter<ITERS; iter++) {
-      
-    // }
+
+    // TODO eventually use cutoffs to process hits in lower lods past certain cutoff distances...
+    float distCutoffs[NUM_LEVELS] = { 0.0, 10.0, 100.0, 200.0 };
+
+    // TODO: add ability to shift back up in lod as well...
+    
+    DDA dda = createDDA(startPos, dir, DDA_LEVEL);
+    for (int iter=0; iter<ITERS; iter++) {
+      ivec3 globalId = dda.coord >> (BR_FACTOR_LOG2 * dda.level);
+      if (getBit(dda.level, globalId)) {
+        vec3 pos = getCurrentPos(dda);
+        if (dda.level > 0) {
+          dda = createDDA(pos+0.01*dir, dir, dda.level-1);
+        } else {
+          if (bMeshletView)
+            outDisplay = vec4(getCellColor(globalId), 1.0);
+          else //if (bDepthView)
+            outDisplay = vec4(fract(dda.globalT * 0.01).xxx, 1.0);
+          return;
+        }
+      } else {
+        uint stepAxis;
+        stepDDA(dda, stepAxis);
+      }
+    }
   }
 }
 

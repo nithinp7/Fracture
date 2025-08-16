@@ -29,7 +29,6 @@ int computeSubdivs(uint level) {
 void switchLevelsDDA(inout DDA dda, uint level) {
   dda.level = level;
   uint subdivs = computeSubdivs(dda.level);
-  // TODO - probably need rounding here somewhere
   vec3 p = dda.o + dda.globalT * dda.d;
   vec3 fr = fract(p/subdivs);
   vec3 rm = subdivs * mix(fr, max(1.0.xxx - fr, 0.0.xxx), greaterThan(dda.sn, ivec3(0)));
@@ -41,7 +40,7 @@ DDA createDDA(vec3 o, vec3 d, uint initLevel) {
   dda.o = o;
   dda.d = d;
   
-  dda.coord = ivec3(o);
+  dda.coord = ivec3(floor(o));
   dda.sn = ivec3(sign(d));
   dda.invD = abs(1.0/d);
   dda.globalT = 0.0;

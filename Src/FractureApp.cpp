@@ -20,11 +20,12 @@ void FractureApp::createDescriptors(ResourcesAssignment& assignment) {
 void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuffer& commandBuffer) {
   m_cellsDepth = *project->getConstUint("CELLS_DEPTH");
   m_batchSize = *project->getConstUint("BATCH_SIZE");
+  m_blockCountL0 = *project->getConstUint("L0_NUM_BLOCKS");
+  m_totalBlockCount = *project->getConstUint("TOTAL_NUM_BLOCKS");
   m_uploadBuffer = project->findBuffer("batchUploadBuffer");
   m_voxelBuffer = project->findBuffer("voxelBuffer");
   m_clearVoxelsCS = project->findComputeShader("CS_ClearBlocks");
   m_uploadVoxelsCS = project->findComputeShader("CS_UploadVoxels");
-  m_genAccelerationBufferCS = project->findComputeShader("CS_GenAccelerationBuffer");
 
   // TODO: hook up windows open-file dialogue
   const char* folderPath = "C:/Users/nithi/Documents/Data/CT_Scans/Bison/SCAN/AMNH-Mammals-232575-000649595/AMNH-mammals-232575";
@@ -83,6 +84,10 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
     m_cutoffLo = *cutoffLo;
     m_cutoffHi = *cutoffHi;
     m_curSlice = 0;
+
+    project->setPushConstants(m_blockCountL0);
+    project->dispatchThreads(m_clearVoxelsCS, m_totalBlockCount - m_blockCountL0, 1, 1, commandBuffer, frame);
+    project->barrierRW(m_voxelBuffer, commandBuffer);
   }
   
   if (m_curSlice < m_numSlices) {
@@ -100,11 +105,10 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
         memcpy((char*)dst + offset, m_slicesImageData[i].data.data(), sliceByteSize);
       uploadBuffer->unmapMemory();
 
+
       project->setPushConstants(m_sliceWidth, m_sliceHeight, m_curSlice);
       project->dispatchThreads(m_uploadVoxelsCS, m_sliceWidth / 4, m_sliceHeight / 4, i / 4, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
-      project->dispatchThreads(m_genAccelerationBufferCS, m_sliceWidth/8/4, m_sliceHeight/8/4, 2, commandBuffer, frame);
-      project->barrierRW(m_voxelBuffer, commandBuffer); // TODO - do this part atomically...
       
       if (*bStaggeredStreaming) {
         m_curSlice += i;

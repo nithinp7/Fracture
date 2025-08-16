@@ -46,9 +46,11 @@ private:
   uint32_t m_batchSize;
   uint32_t m_cellsDepth;
 
+  uint32_t m_blockCountL0;
+  uint32_t m_totalBlockCount;
+
   flr::BufferId m_uploadBuffer;
   flr::BufferId m_voxelBuffer;
   flr::ComputeShaderId m_clearVoxelsCS;
   flr::ComputeShaderId m_uploadVoxelsCS;
-  flr::ComputeShaderId m_genAccelerationBufferCS;
 };

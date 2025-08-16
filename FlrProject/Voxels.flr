@@ -28,7 +28,7 @@ ui_dropdown_end:
 # TODO move back to dropdown
 checkbox ENABLE_DDA: true
 slider_float DDA_SCALE: 128.0 1.0 256.0
-slider_uint DDA_LEVEL: 1 0 1
+slider_uint DDA_LEVEL: 1 0 3
 slider_uint RENDER_MODE: 0 0 1
 
 ui_dropdown_start SAMPLING
@@ -36,7 +36,7 @@ ui_dropdown_start SAMPLING
   slider_uint LIGHT_ITERS: 55 4 100
   slider_float DT: 0.1 0.001 0.1
   slider_float LIGHT_DT: 0.01 0.001 0.1
-  checkbox ENABLE_JITTER: true
+  checkbox ENABLE_JITTER: false
 ui_dropdown_end
 
 checkbox ENABLE_STAGGERED_STREAMING: true
@@ -82,9 +82,9 @@ uint CELLS_DEPTH: L0_BLOCKS_DIM_Z*8
 
 uint BITS_PER_BLOCK: 256
 
-# -----------------
-# ---- STRUCTS ----
-# -----------------
+# -----------------------------
+# ---- STRUCTS / RESOURCES ----
+# -----------------------------
 
 # 4x4x4=64 bytes
 # 8x8x8=512 bits
@@ -113,15 +113,16 @@ struct VertexOutput {
 }
 struct_size: 8
 
-compute_shader CS_UploadVoxels: 8 8 1
-compute_shader CS_GenAccelerationBuffer: 8 8 1
+# -----------------
+# ---- SHADERS ----
+# -----------------
 
+compute_shader CS_UploadVoxels: 8 8 1
 compute_shader CS_ClearBlocks: 32 1 1
 
-task_block_start CLEAR_VOXELS
-  compute_dispatch: CS_ClearBlocks TOTAL_NUM_BLOCKS 1 1
-  barrier: voxelBuffer
-task_block_end
+# -----------------
+# --- RENDERING ---
+# -----------------
 
 render_pass DISPLAY_PASS:
   store_attachments: outDisplay=DisplayImage

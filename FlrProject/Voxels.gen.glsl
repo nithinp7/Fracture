@@ -107,10 +107,6 @@ layout(location = 0) out vec4 outDisplay;
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main() { CS_UploadVoxels(); }
 #endif // _ENTRY_POINT_CS_UploadVoxels
-#ifdef _ENTRY_POINT_CS_GenAccelerationBuffer
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-void main() { CS_GenAccelerationBuffer(); }
-#endif // _ENTRY_POINT_CS_GenAccelerationBuffer
 #ifdef _ENTRY_POINT_CS_ClearBlocks
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 void main() { CS_ClearBlocks(); }
