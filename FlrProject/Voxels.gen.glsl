@@ -1,7 +1,7 @@
 #version 460 core
 
-#define SCREEN_WIDTH 1440
-#define SCREEN_HEIGHT 1280
+#define SCREEN_WIDTH 2560
+#define SCREEN_HEIGHT 1334
 #define NUM_LEVELS 4
 #define BR_FACTOR_LOG2 3
 #define BR_FACTOR 8
@@ -50,6 +50,10 @@ struct Block {
   uvec4 bitfield[4];
 };
 
+struct GlobalState {
+  uint accumFrames;
+};
+
 struct Uint {
   uint u;
 };
@@ -60,40 +64,43 @@ struct VertexOutput {
 
 layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [16];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
-layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
+layout(set=1,binding=2) buffer BUFFER_globalState {  GlobalState globalState[]; };
+layout(set=1,binding=3) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
+layout(set=1,binding=4, rgba32f) uniform image2D RayMarchImage;
+layout(set=1,binding=5) uniform sampler2D EnvironmentMap;
+layout(set=1,binding=6) uniform sampler2D RayMarchTexture;
 
-layout(set=1, binding=3) uniform _UserUniforms {
+layout(set=1, binding=7) uniform _UserUniforms {
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
-	uint DDA_LEVEL;
-	uint RENDER_MODE;
 	uint ITERS;
 	uint LIGHT_ITERS;
+	uint DDA_LEVEL;
+	uint BACKGROUND;
+	uint RENDER_MODE;
 	float DENSITY;
-	float CROSS_SECTION_START;
-	float CROSS_SECTION_END;
 	float G;
-	float FLOOR_REFL;
+	float LIGHT_DT;
+	float JITTER_RAD;
 	float LIGHT_INTENSITY;
 	float LIGHT_THETA;
 	float LIGHT_PHI;
-	float SHADOW_SOFTNESS;
+	float SCENE_SCALE;
+	float EXPOSURE;
 	float LOD_SCALE;
-	float DT;
-	float LIGHT_DT;
-	bool LIGHT_ANIM;
+	float CLASSIC_RAYMARCH_DT;
+	bool ACCUMULATE;
 	bool STEP_UP;
 	bool STEP_DOWN;
 	bool LOD_CUTOFFS;
 	bool LOD_JITTER;
-	bool ENABLE_JITTER;
 	bool ENABLE_STAGGERED_STREAMING;
 };
 
 #include <FlrLib/Fluorescence.glsl>
 
-layout(set=1, binding=4) uniform _CameraUniforms { PerspectiveCamera camera; };
+layout(set=1, binding=8) uniform _CameraUniforms { PerspectiveCamera camera; };
 
 
 
@@ -114,6 +121,14 @@ void main() { CS_UploadVoxels(); }
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 void main() { CS_ClearBlocks(); }
 #endif // _ENTRY_POINT_CS_ClearBlocks
+#ifdef _ENTRY_POINT_CS_Update
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() { CS_Update(); }
+#endif // _ENTRY_POINT_CS_Update
+#ifdef _ENTRY_POINT_CS_RayMarch
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main() { CS_RayMarch(); }
+#endif // _ENTRY_POINT_CS_RayMarch
 #endif // IS_COMP_SHADER
 
 

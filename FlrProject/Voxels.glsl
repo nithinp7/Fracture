@@ -5,6 +5,26 @@
 
 uvec2 seed;
 
+vec3 sampleEnv(vec3 dir) {
+  if (BACKGROUND == 0) {
+    float yaw = mod(atan(dir.z, dir.x) + LIGHT_THETA, 2.0 * PI) - PI;
+    float pitch = -atan(dir.y, length(dir.xz));
+    vec2 uv = vec2(0.5 * yaw, pitch) / PI + 0.5;
+
+    return LIGHT_INTENSITY * textureLod(EnvironmentMap, uv, 0.0).rgb;
+  } else if (BACKGROUND == 1) {
+    float c = 5.0;
+    vec3 n = 0.5 * normalize(dir) + 0.5.xxx;
+    float cosphi = cos(LIGHT_PHI); float sinphi = sin(LIGHT_PHI);
+    float costheta = cos(LIGHT_THETA); float sintheta = sin(LIGHT_THETA);
+    float x = 0.5 + 0.5 * dot(dir, normalize(vec3(costheta * cosphi, sinphi, sintheta * cosphi)));
+    // x = pow(x, 10.0) + 0.01;
+    return LIGHT_INTENSITY * x * round(n * c) / c;
+  } else {
+    return LIGHT_INTENSITY.xxx;
+  }
+}
+
 vec3 getCellColor(ivec3 coord) {
   uvec2 meshletSeed = uvec2(coord.x ^ coord.z, coord.x ^ coord.y);
   return randVec3(meshletSeed);
@@ -23,25 +43,6 @@ vec3 transformToGrid(vec3 pos) {
   return pos;
 }
 
-vec3 getLightPos() {
-  float theta = LIGHT_THETA;
-  if (LIGHT_ANIM)
-    theta += uniforms.time;
-  float phi = LIGHT_PHI;
-  float cosphi = cos(phi); float sinphi = sin(phi);
-  float costheta = cos(theta); float sintheta = sin(theta);
-  vec3 lpos = vec3(0.5.xx, 1.0) + 50.0 * (vec3(costheta * cosphi, sinphi, sintheta * cosphi));
-  lpos *= 100.0;
-  vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
-  vec3 aspectRatio = float(CELLS_DEPTH).xxx / dims;
-  lpos *= aspectRatio * dims;
-  return lpos;
-}
-
-vec3 getLightDir(vec3 pos) {
-  return normalize(getLightPos() - pos);
-}
-
 vec3 computeDir(vec2 uv) {
 	vec2 d = uv * 2.0 - 1.0;
 
@@ -49,20 +50,15 @@ vec3 computeDir(vec2 uv) {
 	return normalize((camera.inverseView * vec4(normalize(target.xyz), 0)).xyz);
 }
 
-vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float lightDt) {
+vec3 raymarchLight(vec3 pos, vec3 viewDir, bool jitter, uint numIters, float lightDt) {
   vec3 lightThroughput = 1.0.xxx;
-  vec3 lightPos = getLightPos();
-  vec3 lightDir = lightPos - pos;
-  float lightDist2 = dot(lightDir, lightDir);
-  lightDir /= sqrt(lightDist2);
+  vec3 lightDir = normalize(2.0 * randVec3(seed) - 1.0.xxx);
+  float phase = phaseFunction(abs(dot(lightDir, viewDir)), G);
   pos += lightDir * lightDt * 2.0;
-  pos += SHADOW_SOFTNESS * (2.0 * randVec3(seed) - 1.0.xxx) * lightDt;
-  if (jitter)
-    pos += lightDir * lightDt * rng(seed);
   for (int lightIter = 0; lightIter < numIters; lightIter++) {
     pos += lightDt * lightDir;
-    if (getBit(0, ivec3(pos))) {
-      lightThroughput *= exp(-0.5 * DENSITY * lightDt).xxx;
+    if (getBit(0, ivec3(round(pos)))) {
+      lightThroughput *= exp(-DENSITY * lightDt).xxx;
       if (dot(lightThroughput, lightThroughput) < 0.00001) {
         lightThroughput = 0.0.xxx;
         break;
@@ -70,9 +66,38 @@ vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float lightDt) {
     }
   }
 
-  vec3 LIGHT_COLOR = 1.0.xxx;
-  return 1000.0 * LIGHT_INTENSITY * LIGHT_COLOR * lightThroughput / lightDist2;
+  return phase * sampleEnv(lightDir) * lightThroughput;
 }
+
+#if 0
+// UNUSED DDA-based light ray impl 
+vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float unused) {
+  vec3 lightThroughput = 1.0.xxx;
+  vec3 lightPos = getLightPos();
+  vec3 lightDir = (lightPos - pos);
+  float lightDist2 = dot(lightDir, lightDir);
+  lightDir /= sqrt(lightDist2);
+  float phase = phaseFunction(abs(dot(lightDir, dir)), G);
+  // pos += SHADOW_SOFTNESS * (2.0 * randVec3(seed) - 1.0.xxx) * lightDt;
+  // if (jitter)
+    // pos += lightDir * lightDt * rng(seed);
+  DDA dda = createDDA(pos, lightDir, 1);
+  for (int lightIter = 0; lightIter < numIters; lightIter++) {
+    uint stepAxis;
+    float dt = stepDDA(dda, stepAxis);
+    if (getBit(dda.level, dda.coord >> (BR_FACTOR_LOG2 * dda.level))) {
+      lightThroughput *= exp(-DENSITY * dt).xxx;
+      if (dot(lightThroughput, lightThroughput) < 0.001) {
+        lightThroughput = 0.0.xxx;
+        break;
+      }
+    }
+  }
+
+  vec3 LIGHT_COLOR = 1.0.xxx;
+  return phase * 1000.0 * LIGHT_INTENSITY * LIGHT_COLOR * lightThroughput / lightDist2;
+}
+#endif
 
 #ifdef IS_COMP_SHADER
 void CS_UploadVoxels() {
@@ -103,7 +128,7 @@ void CS_UploadVoxels() {
     
     if (f > 0.0) {
       outVec[i >> 5] |= 1 << (i & 31);
-      setParentsAtomic(globalId + localId); // TODO - do this in a separate pass, for less atomic contention?
+      setParentsAtomic(globalId); // TODO - do this in a separate pass, for less atomic contention?
     }
   }
   
@@ -122,40 +147,65 @@ void CS_ClearBlocks() {
   GetVoxelBlock(blockIdx).bitfield[2] = uvec4(0);
   GetVoxelBlock(blockIdx).bitfield[3] = uvec4(0);
 }
-#endif // IS_COMP_SHADER
 
-#ifdef IS_VERTEX_SHADER
-VertexOutput VS_RayMarchVoxels() {
-  VertexOutput OUT;
-  OUT.uv = VS_FullScreen();
-  gl_Position = vec4(OUT.uv * 2.0 - 1.0, 0.0, 1.0);
-  return OUT;
+#define IsMeshletView() ((uniforms.inputMask & INPUT_BIT_SPACE) != 0)
+#define IsDepthView() ((uniforms.inputMask & INPUT_BIT_F) != 0)
+#define IsIterHeatView() ((uniforms.inputMask & INPUT_BIT_I) != 0)
+
+vec4 debugColor(float t, ivec3 globalId, int iter) {
+  vec4 color = vec4(0.0.xxx, 1.0);
+  if (IsMeshletView()) {
+    color = vec4(getCellColor(globalId), 1.0);
+  } else if (IsDepthView()) {
+    color = vec4(fract(t * 0.01).xxx, 1.0);
+  } else /*if (bIterHeatView)*/ {
+    color = vec4((float(iter)/ITERS).xxx, 1.0);
+  } 
+  return color;
 }
-#endif // IS_VERTEX_SHADER
 
-#ifdef IS_PIXEL_SHADER
-
-void PS_RayMarchVoxels(VertexOutput IN) {
-  seed = uvec2(IN.uv * vec2(SCREEN_WIDTH, SCREEN_HEIGHT)) * uvec2(231, 232);
-  
-  bool bMeshletView = (uniforms.inputMask & INPUT_BIT_SPACE) != 0;
-  bool bDepthView = (uniforms.inputMask & INPUT_BIT_F) != 0;
-  bool bIterHeatView = (uniforms.inputMask & INPUT_BIT_I) != 0;
-  // bool bDebugRender = bMeshletView || bDepthView;
-
-  float SCALE = 0.01;
-
-  vec3 dir = computeDir(IN.uv);
-  vec3 startPos = SCALE * camera.inverseView[3].xyz;
-
-  // if (!bDebugRender)
-    // startPos += 0.25 * dir;
-  if (!bMeshletView && ENABLE_JITTER) {
-    startPos += (rng(seed)) * dir * DT;
+bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 throughput) {
+  vec3 Li = raymarchLight(pos, dir, true, LIGHT_ITERS, LIGHT_DT);
+  color += throughput * Li;
+  throughput *= exp(-DENSITY * 1.0);
+  if (dot(throughput, throughput) < 0.0001) 
+  {
+    throughput = 0.0.xxx;
+    return false;
   }
+  return true;
+}
 
-  float f = dir.y;
-  outDisplay = vec4(0.05 * max(round(fract(f * 2.0)), 0.2).xxx, 1.0);
+void CS_Update() {
+  if (!ACCUMULATE || (uniforms.inputMask & INPUT_BIT_C) != 0) {
+    globalState[0].accumFrames = 0;
+  } else {
+    globalState[0].accumFrames++;// = max(globalState[0].accumFrames + 1, 4);
+  }
+}
+
+void CS_RayMarch() {
+  ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+  if (pixelCoord.x >= SCREEN_WIDTH || pixelCoord.y >= SCREEN_HEIGHT)
+    return;
+
+  float temporalBlend = 1.0 / (globalState[0].accumFrames + 1.0);
+  vec3 prevColor = imageLoad(RayMarchImage, pixelCoord).rgb;
+
+  seed = uvec2(pixelCoord) * uvec2(uniforms.frameCount, uniforms.frameCount+1);
+  
+  bool bDebugRender = IsMeshletView() || IsDepthView() || IsIterHeatView();
+
+  vec2 subpixJitter = JITTER_RAD * (randVec2(seed) - 0.5.xx);
+  vec2 uv = (vec2(pixelCoord) + 0.5.xx + subpixJitter) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
+  vec3 dir = computeDir(uv);
+  vec3 forwardJitter = rng(seed) * dir * 0.0;
+  vec3 startPos = SCENE_SCALE * camera.inverseView[3].xyz + forwardJitter;
+
+  if (!bDebugRender)
+    startPos += 0.05 * dir;
+
+  vec3 backgroundColor = sampleEnv(dir);
   
   {
     vec3 dims = vec3(CELLS_WIDTH, CELLS_HEIGHT, CELLS_DEPTH);
@@ -165,35 +215,39 @@ void PS_RayMarchVoxels(VertexOutput IN) {
     dir = normalize(dir);
   }
 
+  vec3 Li = 0.0.xxx;
+  vec3 throughput = 1.0.xxx;
+
   if (RENDER_MODE == 0) {
     // Classical fixed-step raymarcher
     float t = 0.0;
     for (int iter=0; iter<ITERS; iter++) {
-      t += 100.0 * DT;
+      t += 100.0 * CLASSIC_RAYMARCH_DT;
       vec3 pos = startPos + t * dir;
       ivec3 globalId = ivec3(pos) >> (BR_FACTOR_LOG2 * DDA_LEVEL);
       if (getBit(DDA_LEVEL, globalId)) {
-        if (bMeshletView) {
-          outDisplay = vec4(getCellColor(globalId), 1.0);
-        } else if (bDepthView) {            
-          outDisplay = vec4(fract(t * 0.01).xxx, 1.0);
-        } else /*if (bIterHeatView)*/ {
-          outDisplay = vec4((float(iter)/ITERS).xxx, 1.0);
-        } 
-        return;
+        if (bDebugRender) {
+          // TODO ..
+          // outDisplay = debugColor(t, globalId, iter);
+          return;
+        } else {
+          if (!accumulateLight(pos, dir, 100.0 * CLASSIC_RAYMARCH_DT, Li, throughput))
+            break;
+        }
       }
     }
   } else if (RENDER_MODE == 1) {
     // HDDA raymarcher
 
+    // TODO should also have iter-cutoffs
     float lodCutoffs[NUM_LEVELS] = { 1.0, 5.0, 24.0, 1000. };
     // uint iterCutoffs[NUM_LEVELS] = { 0.0, 10.0, 100.0, 200.0 };
 
-    // TODO - step-up logic not working   
     uint lodClamp = 0;
 
     DDA dda = createDDA(startPos, dir, DDA_LEVEL);
     uint stepAxis = 0;
+    float stepDt = 0.0;
     float prevDdaT = 0.0;
     // TODO - standardize lod-scale jitter...
     if (LOD_JITTER)
@@ -214,21 +268,24 @@ void PS_RayMarchVoxels(VertexOutput IN) {
           vec3 eps = 0.0.xxx;
           eps[stepAxis] = dda.sn[stepAxis] * 0.001;
           dda = createDDA(pos + eps, dir, dda.level-1);
+          // if (dda.level == 0)
+          // stepDt = stepDDA(dda, stepAxis);
         } else {
           bHit = true;
         }
 
         if (bHit) {
-          float dist = length(pos - startPos);
-          if (bMeshletView) {
-            outDisplay = vec4(getCellColor(globalId), 1.0);
-          } else if (bDepthView) {
-            outDisplay = vec4(fract(dist * 0.01).xxx, 1.0);
-          } else /*if (bIterHeatView)*/ {
-            outDisplay = vec4((float(iter)/ITERS).xxx, 1.0);
-          } 
-
-          return;
+          if (bDebugRender) {
+            // TODO ...
+            float dist = length(pos - startPos);
+            // outDisplay = debugColor(dist, globalId, iter);
+            return;
+          } else {  
+            if (accumulateLight(pos, dir, stepDt, Li, throughput))
+              stepDt = stepDDA(dda, stepAxis);
+            else
+              break;
+          }
         }
       } else if (
           STEP_UP &&
@@ -238,10 +295,35 @@ void PS_RayMarchVoxels(VertexOutput IN) {
         vec3 eps = 0.0.xxx;
         eps[stepAxis] = dda.sn[stepAxis] * 0.001;
         dda = createDDA(getCurrentPos(dda) + eps, dir, dda.level+1);
+        // stepDt = stepDDA(dda, stepAxis); // ?? needed??
       } else {
-        stepDDA(dda, stepAxis);
+        stepDt = stepDDA(dda, stepAxis);
       }
     }
   }
+
+  vec3 color = Li + throughput * backgroundColor;
+  color = mix(prevColor, color, temporalBlend);
+  imageStore(RayMarchImage, pixelCoord, vec4(color, 1.0));
+}
+
+#endif // IS_COMP_SHADER
+
+#ifdef IS_VERTEX_SHADER
+VertexOutput VS_RayMarchVoxels() {
+  VertexOutput OUT;
+  OUT.uv = VS_FullScreen();
+  gl_Position = vec4(OUT.uv * 2.0 - 1.0, 0.0, 1.0);
+  return OUT;
+}
+#endif // IS_VERTEX_SHADER
+
+#ifdef IS_PIXEL_SHADER
+void PS_RayMarchVoxels(VertexOutput IN) {
+  vec3 color = texture(RayMarchTexture, IN.uv).rgb;
+
+  color = vec3(1.0) - exp(-color * EXPOSURE);
+
+  outDisplay = vec4(color, 1.0);
 }
 #endif // IS_PIXEL_SHADER

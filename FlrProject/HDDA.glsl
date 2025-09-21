@@ -49,7 +49,7 @@ DDA createDDA(vec3 o, vec3 d, uint initLevel) {
   return dda;
 }
 
-void stepDDA(inout DDA dda, inout uint stepAxis) {
+float stepDDA(inout DDA dda, inout uint stepAxis) {
   int subdivs = computeSubdivs(dda.level);
   bvec3 stepMask = lessThan(dda.t.xyz, min(dda.t.zxy, dda.t.yzx));
   stepAxis = stepMask[0] ? 0 : (stepMask[1] ? 1 : 2);
@@ -57,8 +57,10 @@ void stepDDA(inout DDA dda, inout uint stepAxis) {
   // rectified during the level-switch
   // would be nice to not have to retrace the last step...
   dda.coord[stepAxis] += subdivs * dda.sn[stepAxis];
-  dda.globalT += dda.t[stepAxis];
-  dda.t -= dda.t[stepAxis].xxx;
+  float dt = dda.t[stepAxis];
+  dda.globalT += dt;
+  dda.t -= dt.xxx;
   dda.t[stepAxis] = subdivs * dda.invD[stepAxis];
+  return dt;
 }
 #endif // _HDDA_GLSL_
