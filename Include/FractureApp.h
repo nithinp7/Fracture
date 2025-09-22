@@ -18,6 +18,8 @@ namespace AltheaEngine {
 }
 class FractureApp : public flr::IFlrProgram {
 public:
+  FractureApp() : m_volumeIdx(0u) {}
+  void setupParams(flr::FlrParams& params) override;
   void setupDescriptorTable(DescriptorSetLayoutBuilder& builder) override;
   void createDescriptors(ResourcesAssignment& assignment) override;
   void createRenderState(flr::Project* project, SingleTimeCommandBuffer& commandBuffer) override;
@@ -31,18 +33,30 @@ public:
 
 private:
   void restreamBatch();
+  void createFileName(uint32_t volumeIdx, uint32_t sliceIdx, char* outBuf, size_t outBufSize) const;
+  void selectVolume(uint32_t volumeIdx);
 
-  ImageResource m_volumeTexture;
-  flr::Project* m_pProject;
+  struct VolumeData {
+    std::string m_folderName;
+    std::string m_fileTemplate;
+    std::string m_ext;
+  };
+  std::vector<VolumeData> m_volumes;
+  uint32_t m_volumeIdx;
+
   std::vector<Utilities::ImageFile> m_slicesImageData;
   uint32_t m_sliceWidth;
   uint32_t m_sliceHeight;
   uint32_t m_numSlices;
+  uint32_t m_bytesPerPixel;
 
-  uint32_t m_curSlice;
-  uint32_t m_cutoffLo;
-  uint32_t m_cutoffHi;
-
+  flr::CachedFlrUiView<uint32_t> m_volumeIdxUi;
+  flr::CachedFlrUiView<uint32_t> m_cutoffLoUi;
+  flr::CachedFlrUiView<uint32_t> m_cutoffHiUi;
+  
+  flr::FlrUiView<bool> m_bStaggeredStreamingUi;
+  
+  uint32_t m_curStreamingSlice;
   uint32_t m_batchSize;
   uint32_t m_cellsDepth;
 

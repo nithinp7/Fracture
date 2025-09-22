@@ -1,7 +1,11 @@
 #version 460 core
 
-#define SCREEN_WIDTH 2560
-#define SCREEN_HEIGHT 1334
+#define NUM_VOLUMES 2
+#define SLICE_WIDTH 1530
+#define SLICE_HEIGHT 1805
+#define BYTES_PER_PIXEL 2
+#define SCREEN_WIDTH 1440
+#define SCREEN_HEIGHT 1024
 #define NUM_LEVELS 4
 #define BR_FACTOR_LOG2 3
 #define BR_FACTOR 8
@@ -29,7 +33,7 @@
 #define VOXEL_SUB_BUFFER_COUNT 16
 #define VOXEL_SUB_BUFFER_SIZE 16810049
 #define BATCH_SIZE 8
-#define UPLOAD_BATCH_SIZE_BASE32 16744464
+#define UPLOAD_BATCH_SIZE_BASE32 11046600
 
 struct IndexedIndirectArgs {
   uint indexCount;
@@ -54,10 +58,6 @@ struct GlobalState {
   uint accumFrames;
 };
 
-struct Uint {
-  uint u;
-};
-
 struct VertexOutput {
   vec2 uv;
 };
@@ -65,7 +65,7 @@ struct VertexOutput {
 layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[]; } _HEAP_voxelBuffer [16];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
 layout(set=1,binding=2) buffer BUFFER_globalState {  GlobalState globalState[]; };
-layout(set=1,binding=3) buffer BUFFER_batchUploadBuffer {  Uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
+layout(set=1,binding=3) buffer BUFFER_batchUploadBuffer {  uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
 layout(set=1,binding=4, rgba32f) uniform image2D RayMarchImage;
 layout(set=1,binding=5) uniform sampler2D EnvironmentMap;
@@ -78,6 +78,7 @@ layout(set=1, binding=7) uniform _UserUniforms {
 	uint LIGHT_ITERS;
 	uint DDA_LEVEL;
 	uint BACKGROUND;
+	uint VOLUME_IDX;
 	uint RENDER_MODE;
 	float DENSITY;
 	float G;

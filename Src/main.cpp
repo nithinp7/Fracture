@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
 
   Application::CreateOptions options{};
   options.width = 1440;
-  options.height = 1280;
+  options.height = 1024;
   options.frameRateLimit = 30;
   Application app("Fracture", "../../../Fluorescence", "../../../Fluorescence/Extern/Althea", &options);
   flr::Fluorescence* game = app.createGame<flr::Fluorescence>();

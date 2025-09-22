@@ -1,5 +1,13 @@
 
 # -----------------
+# ----- PARAMS ----
+# -----------------
+# uint NUM_VOLUMES
+# uint SLICE_WIDTH
+# uint SLICE_HEIGHT
+# uint BYTES_PER_PIXEL
+
+# -----------------
 # ---- FEATURES ---
 # -----------------
 
@@ -38,6 +46,7 @@ ui_dropdown_end
 ui_dropdown_start SCENE
   slider_uint BACKGROUND: 1 0 2
   slider_float SCENE_SCALE: 0.01 0.001 0.1
+  slider_uint VOLUME_IDX: 0 0 NUM_VOLUMES
 ui_dropdown_end
 
 ui_dropdown_start MISC
@@ -116,13 +125,9 @@ struct GlobalState {
 struct_size: 4
 structured_buffer globalState: GlobalState 1
 
-struct Uint {
-  uint u;
-}
-struct_size: 4
 uint BATCH_SIZE: 8
-uint UPLOAD_BATCH_SIZE_BASE32: 2046 * 2046 * 2 * BATCH_SIZE / 4
-structured_buffer batchUploadBuffer(2): Uint UPLOAD_BATCH_SIZE_BASE32
+uint UPLOAD_BATCH_SIZE_BASE32: SLICE_WIDTH * SLICE_HEIGHT * BYTES_PER_PIXEL * BATCH_SIZE / 4
+structured_buffer batchUploadBuffer(2): uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
 
 texture_file EnvironmentMap: "C:/Users/nithi/Documents/Code/Fluorescence/Extern/Althea/Content/HDRI_Skybox/NeoclassicalInterior.hdr" hdr

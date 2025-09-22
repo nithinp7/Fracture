@@ -5,36 +5,11 @@
 
 uvec2 seed;
 
-vec3 sampleEnv(vec3 dir) {
-  if (BACKGROUND == 0) {
-    float yaw = mod(atan(dir.z, dir.x) + LIGHT_THETA, 2.0 * PI) - PI;
-    float pitch = -atan(dir.y, length(dir.xz));
-    vec2 uv = vec2(0.5 * yaw, pitch) / PI + 0.5;
-
-    return LIGHT_INTENSITY * textureLod(EnvironmentMap, uv, 0.0).rgb;
-  } else if (BACKGROUND == 1) {
-    float c = 5.0;
-    vec3 n = 0.5 * normalize(dir) + 0.5.xxx;
-    float cosphi = cos(LIGHT_PHI); float sinphi = sin(LIGHT_PHI);
-    float costheta = cos(LIGHT_THETA); float sintheta = sin(LIGHT_THETA);
-    float x = 0.5 + 0.5 * dot(dir, normalize(vec3(costheta * cosphi, sinphi, sintheta * cosphi)));
-    // x = pow(x, 10.0) + 0.01;
-    return LIGHT_INTENSITY * x * round(n * c) / c;
-  } else {
-    return LIGHT_INTENSITY.xxx;
-  }
-}
+#include "Lighting.glsl"
 
 vec3 getCellColor(ivec3 coord) {
   uvec2 meshletSeed = uvec2(coord.x ^ coord.z, coord.x ^ coord.y);
   return randVec3(meshletSeed);
-}
-
-float phaseFunction(float cosTheta, float g) {
-  float g2 = g * g;
-  return  
-      3.0 * (1.0 - g2) * (1.0 + cosTheta * cosTheta) / 
-      (8 * PI * (2.0 + g2) * pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5));
 }
 
 vec3 transformToGrid(vec3 pos) {
@@ -50,76 +25,35 @@ vec3 computeDir(vec2 uv) {
 	return normalize((camera.inverseView * vec4(normalize(target.xyz), 0)).xyz);
 }
 
-vec3 raymarchLight(vec3 pos, vec3 viewDir, bool jitter, uint numIters, float lightDt) {
-  vec3 lightThroughput = 1.0.xxx;
-  vec3 lightDir = normalize(2.0 * randVec3(seed) - 1.0.xxx);
-  float phase = phaseFunction(abs(dot(lightDir, viewDir)), G);
-  pos += lightDir * lightDt * 2.0;
-  for (int lightIter = 0; lightIter < numIters; lightIter++) {
-    pos += lightDt * lightDir;
-    if (getBit(0, ivec3(round(pos)))) {
-      lightThroughput *= exp(-DENSITY * lightDt).xxx;
-      if (dot(lightThroughput, lightThroughput) < 0.00001) {
-        lightThroughput = 0.0.xxx;
-        break;
-      }
-    }
-  }
-
-  return phase * sampleEnv(lightDir) * lightThroughput;
-}
-
-#if 0
-// UNUSED DDA-based light ray impl 
-vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float unused) {
-  vec3 lightThroughput = 1.0.xxx;
-  vec3 lightPos = getLightPos();
-  vec3 lightDir = (lightPos - pos);
-  float lightDist2 = dot(lightDir, lightDir);
-  lightDir /= sqrt(lightDist2);
-  float phase = phaseFunction(abs(dot(lightDir, dir)), G);
-  // pos += SHADOW_SOFTNESS * (2.0 * randVec3(seed) - 1.0.xxx) * lightDt;
-  // if (jitter)
-    // pos += lightDir * lightDt * rng(seed);
-  DDA dda = createDDA(pos, lightDir, 1);
-  for (int lightIter = 0; lightIter < numIters; lightIter++) {
-    uint stepAxis;
-    float dt = stepDDA(dda, stepAxis);
-    if (getBit(dda.level, dda.coord >> (BR_FACTOR_LOG2 * dda.level))) {
-      lightThroughput *= exp(-DENSITY * dt).xxx;
-      if (dot(lightThroughput, lightThroughput) < 0.001) {
-        lightThroughput = 0.0.xxx;
-        break;
-      }
-    }
-  }
-
-  vec3 LIGHT_COLOR = 1.0.xxx;
-  return phase * 1000.0 * LIGHT_INTENSITY * LIGHT_COLOR * lightThroughput / lightDist2;
-}
-#endif
-
 #ifdef IS_COMP_SHADER
 void CS_UploadVoxels() {
-  uint sliceWidth = push0;
-  uint sliceHeight = push1;
-  uint sliceOffset = push2;
+  uint sliceOffset = push0;
 
   uvec3 tileId = gl_GlobalInvocationID.xyz;
   if (tileId.x >= CELLS_WIDTH/4 || tileId.y >= CELLS_HEIGHT/4 ||
-      tileId.x >= sliceWidth/4 || tileId.y >= sliceHeight/4) {
+      tileId.x >= SLICE_WIDTH/4 || tileId.y >= SLICE_HEIGHT/4) {
     return;
   }
 
   uvec3 globalIdStart = 4 * tileId + uvec3(0, 0, sliceOffset);
   uvec2 outVec = uvec2(0);
   for (uint i = 0; i < 64; i++) {
-    uvec3 localId = uvec3(i & 3, (i >> 2) & 3, i >> 4);
+    uvec3 localId = i.xxx >> uvec3(0, 2, 4) & 3;
     uvec3 globalId = globalIdStart + localId;
-    uint texelIdx = (localId.z + 4 * tileId.z) * sliceWidth * sliceHeight + sliceWidth * globalId.y + globalId.x;
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1].u;
+    uint texelIdx = (localId.z + 4 * tileId.z) * SLICE_WIDTH * SLICE_HEIGHT + SLICE_WIDTH * globalId.y + globalId.x;
+
+#if BYTES_PER_PIXEL == 1
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 2];
+    val >>= 8 * ((texelIdx) & 3);
+    val &= 0xFF;
+#elif BYTES_PER_PIXEL == 2
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1];
     val >>= 16 * ((texelIdx) & 1); 
     val &= 0xFFFF;
+#else
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx];
+#endif
+
     float f = float(val) - float(CUTOFF_LO);
     f /= float(CUTOFF_HI - CUTOFF_LO);
     if (f < 0.0 || f > 1.0) {
@@ -152,10 +86,14 @@ void CS_ClearBlocks() {
 #define IsDepthView() ((uniforms.inputMask & INPUT_BIT_F) != 0)
 #define IsIterHeatView() ((uniforms.inputMask & INPUT_BIT_I) != 0)
 
+bool IsDebugRenderActive() {
+  return IsMeshletView() || IsDepthView() || IsIterHeatView();
+}
+
 vec4 debugColor(float t, ivec3 globalId, int iter) {
   vec4 color = vec4(0.0.xxx, 1.0);
   if (IsMeshletView()) {
-    color = vec4(getCellColor(globalId), 1.0);
+    color = vec4(2.0 * getCellColor(globalId), 1.0);
   } else if (IsDepthView()) {
     color = vec4(fract(t * 0.01).xxx, 1.0);
   } else /*if (bIterHeatView)*/ {
@@ -164,20 +102,8 @@ vec4 debugColor(float t, ivec3 globalId, int iter) {
   return color;
 }
 
-bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 throughput) {
-  vec3 Li = raymarchLight(pos, dir, true, LIGHT_ITERS, LIGHT_DT);
-  color += throughput * Li;
-  throughput *= exp(-DENSITY * 1.0);
-  if (dot(throughput, throughput) < 0.0001) 
-  {
-    throughput = 0.0.xxx;
-    return false;
-  }
-  return true;
-}
-
 void CS_Update() {
-  if (!ACCUMULATE || (uniforms.inputMask & INPUT_BIT_C) != 0) {
+  if (!ACCUMULATE || (uniforms.inputMask & INPUT_BIT_C) != 0 || IsDebugRenderActive()) {
     globalState[0].accumFrames = 0;
   } else {
     globalState[0].accumFrames++;// = max(globalState[0].accumFrames + 1, 4);
@@ -194,7 +120,7 @@ void CS_RayMarch() {
 
   seed = uvec2(pixelCoord) * uvec2(uniforms.frameCount, uniforms.frameCount+1);
   
-  bool bDebugRender = IsMeshletView() || IsDepthView() || IsIterHeatView();
+  bool bDebugRender = IsDebugRenderActive();
 
   vec2 subpixJitter = JITTER_RAD * (randVec2(seed) - 0.5.xx);
   vec2 uv = (vec2(pixelCoord) + 0.5.xx + subpixJitter) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -276,10 +202,10 @@ void CS_RayMarch() {
 
         if (bHit) {
           if (bDebugRender) {
-            // TODO ...
             float dist = length(pos - startPos);
-            // outDisplay = debugColor(dist, globalId, iter);
-            return;
+            Li = prevColor.rgb = debugColor(dist, globalId, iter).xyz;
+            throughput = 0.0.xxx;
+            break;
           } else {  
             if (accumulateLight(pos, dir, stepDt, Li, throughput))
               stepDt = stepDDA(dda, stepAxis);
@@ -311,10 +237,7 @@ void CS_RayMarch() {
 
 #ifdef IS_VERTEX_SHADER
 VertexOutput VS_RayMarchVoxels() {
-  VertexOutput OUT;
-  OUT.uv = VS_FullScreen();
-  gl_Position = vec4(OUT.uv * 2.0 - 1.0, 0.0, 1.0);
-  return OUT;
+  return VertexOutput(VS_FullScreen());
 }
 #endif // IS_VERTEX_SHADER
 
