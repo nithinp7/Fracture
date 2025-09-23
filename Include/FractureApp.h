@@ -58,6 +58,8 @@ private:
   
   uint32_t m_curStreamingSlice;
   uint32_t m_batchSize;
+  uint32_t m_cellsWidth;
+  uint32_t m_cellsHeight;
   uint32_t m_cellsDepth;
 
   uint32_t m_blockCountL0;

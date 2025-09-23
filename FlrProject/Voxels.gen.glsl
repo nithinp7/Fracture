@@ -1,9 +1,10 @@
 #version 460 core
 
 #define NUM_VOLUMES 2
-#define SLICE_WIDTH 1530
-#define SLICE_HEIGHT 1805
-#define BYTES_PER_PIXEL 2
+#define SLICE_WIDTH 2177
+#define SLICE_HEIGHT 1935
+#define BYTES_PER_PIXEL 1
+#define MAX_CUTOFF 255
 #define SCREEN_WIDTH 1440
 #define SCREEN_HEIGHT 1024
 #define NUM_LEVELS 4
@@ -29,11 +30,11 @@
 #define CELLS_WIDTH 4096
 #define CELLS_HEIGHT 4096
 #define CELLS_DEPTH 8192
-#define BITS_PER_BLOCK 256
+#define DEFAULT_CUTOFF_LO 85
 #define VOXEL_SUB_BUFFER_COUNT 16
 #define VOXEL_SUB_BUFFER_SIZE 16810049
 #define BATCH_SIZE 8
-#define UPLOAD_BATCH_SIZE_BASE32 11046600
+#define UPLOAD_BATCH_SIZE_BASE32 8424990
 
 struct IndexedIndirectArgs {
   uint indexCount;
@@ -74,6 +75,12 @@ layout(set=1,binding=6) uniform sampler2D RayMarchTexture;
 layout(set=1, binding=7) uniform _UserUniforms {
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
+	uint X_LO;
+	uint X_HI;
+	uint Y_LO;
+	uint Y_HI;
+	uint Z_LO;
+	uint Z_HI;
 	uint ITERS;
 	uint LIGHT_ITERS;
 	uint DDA_LEVEL;

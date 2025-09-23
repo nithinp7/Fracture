@@ -54,9 +54,13 @@ void FractureApp::setupParams(flr::FlrParams& params) {
   params.m_uintParams.push_back({ std::string("SLICE_WIDTH"), m_sliceWidth });
   params.m_uintParams.push_back({ std::string("SLICE_HEIGHT"), m_sliceHeight });
   params.m_uintParams.push_back({ std::string("BYTES_PER_PIXEL"), m_bytesPerPixel });
+  uint32_t maxCutoff = static_cast<uint32_t>((1ull << (8 * m_bytesPerPixel)) - 1ull);
+  params.m_uintParams.push_back({ std::string("MAX_CUTOFF"), maxCutoff });
 }
 
 void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuffer& commandBuffer) {
+  m_cellsWidth = *project->getConstUint("CELLS_WIDTH");
+  m_cellsHeight = *project->getConstUint("CELLS_HEIGHT");
   m_cellsDepth = *project->getConstUint("CELLS_DEPTH");
   m_batchSize = *project->getConstUint("BATCH_SIZE");
   m_blockCountL0 = *project->getConstUint("L0_NUM_BLOCKS");
@@ -160,7 +164,9 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
       uploadBuffer->unmapMemory();
 
       project->setPushConstants(m_curStreamingSlice);
-      project->dispatchThreads(m_uploadVoxelsCS, m_sliceWidth / 4, m_sliceHeight / 4, i / 4, commandBuffer, frame);
+      uint32_t threadsX = min(m_cellsWidth, m_sliceWidth) / 4;
+      uint32_t threadsY = min(m_cellsHeight, m_sliceHeight) / 4;
+      project->dispatchThreads(m_uploadVoxelsCS, threadsX, threadsY, i / 4, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
 
       if (*m_bStaggeredStreamingUi) {

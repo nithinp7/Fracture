@@ -164,6 +164,8 @@ void CS_RayMarch() {
     }
   } else if (RENDER_MODE == 1) {
     // HDDA raymarcher
+    ivec3 crossSectionLo = ivec3(X_LO, Y_LO, Z_LO);
+    ivec3 crossSectionHi = ivec3(X_HI, Y_HI, Z_HI);
 
     // TODO should also have iter-cutoffs
     float lodCutoffs[NUM_LEVELS] = { 1.0, 5.0, 24.0, 1000. };
@@ -182,9 +184,10 @@ void CS_RayMarch() {
       float t = prevDdaT + dda.globalT;
       if (LOD_CUTOFFS && t > lodCutoffs[lodClamp]*LOD_SCALE*1000 && lodClamp < NUM_LEVELS)
         lodClamp++;
-
+      // TODO impl cross sectional view properly, this approach screws up the HDDA raymarching
+      bool bCulled = false;//dda.level == 0 && (any(lessThan(dda.coord, crossSectionLo)) || any(greaterThan(dda.coord, crossSectionHi)));
       ivec3 globalId = dda.coord >> (BR_FACTOR_LOG2 * dda.level);
-      if (getBit(dda.level, globalId)) {
+      if (!bCulled && getBit(dda.level, globalId)) {
         bool bHit = false;
         vec3 pos = getCurrentPos(dda);
         if (dda.level <= lodClamp) {
