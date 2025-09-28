@@ -103,7 +103,7 @@ vec4 debugColor(float t, ivec3 globalId, int iter) {
 }
 
 void CS_Update() {
-  if (!ACCUMULATE || (uniforms.inputMask & INPUT_BIT_C) != 0 || IsDebugRenderActive()) {
+  if (ACCUMULATE == ((uniforms.inputMask & INPUT_BIT_C) != 0) || IsDebugRenderActive()) {
     globalState[0].accumFrames = 0;
   } else {
     globalState[0].accumFrames++;// = max(globalState[0].accumFrames + 1, 4);
@@ -122,14 +122,20 @@ void CS_RayMarch() {
   
   bool bDebugRender = IsDebugRenderActive();
 
-  vec2 subpixJitter = JITTER_RAD * (randVec2(seed) - 0.5.xx);
-  vec2 uv = (vec2(pixelCoord) + 0.5.xx + subpixJitter) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
+  vec3 startPos = SCENE_SCALE * camera.inverseView[3].xyz;
+  vec2 uv = (vec2(pixelCoord) + 0.5.xx) / vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
   vec3 dir = computeDir(uv);
+  
+  if (ENABLE_DOF) {
+    vec3 c = startPos + DOF_DIST * dir;
+    startPos += DOF_RAD * (randVec3(seed) - 0.5.xxx) * 0.01;
+    dir = normalize(c - startPos);
+  }
   vec3 forwardJitter = rng(seed) * dir * 0.0;
-  vec3 startPos = SCENE_SCALE * camera.inverseView[3].xyz + forwardJitter;
+  startPos += forwardJitter;
 
   if (!bDebugRender)
-    startPos += 0.05 * dir;
+    startPos += 0.001 * dir;
 
   vec3 backgroundColor = sampleEnv(dir);
   
@@ -157,7 +163,7 @@ void CS_RayMarch() {
           // outDisplay = debugColor(t, globalId, iter);
           return;
         } else {
-          if (!accumulateLight(pos, dir, 100.0 * CLASSIC_RAYMARCH_DT, Li, throughput))
+          if (!accumulateLight(pos, dir, 100.0 * CLASSIC_RAYMARCH_DT, Li, throughput, iter))
             break;
         }
       }
@@ -210,7 +216,7 @@ void CS_RayMarch() {
             throughput = 0.0.xxx;
             break;
           } else {  
-            if (accumulateLight(pos, dir, stepDt, Li, throughput))
+            if (accumulateLight(pos, dir, stepDt, Li, throughput, iter))
               stepDt = stepDDA(dda, stepAxis);
             else
               break;

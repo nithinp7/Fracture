@@ -59,8 +59,8 @@ uint DEFAULT_CUTOFF_LO: MAX_CUTOFF/3
 # -----------------
 
 checkbox ACCUMULATE: false
-slider_float DENSITY: 0.1 0.01 5.0
-slider_float G: 0.65 -1.0 1.0
+slider_float DENSITY: 0.3 0.01 5.0
+slider_float G: 0.31 -1.0 1.0
 ui_separator
 slider_uint CUTOFF_LO: DEFAULT_CUTOFF_LO 0 MAX_CUTOFF
 slider_uint CUTOFF_HI: MAX_CUTOFF 0 MAX_CUTOFF
@@ -75,15 +75,18 @@ ui_dropdown_start CROSS_SECTION
 ui_dropdown_end
 ui_separator
 ui_dropdown_start SAMPLING
-  slider_uint ITERS: 280 20 1000
+  slider_uint ITERS: 350 20 1000
   slider_uint LIGHT_ITERS: 8 4 100
-  slider_float LIGHT_DT: 4.0 0.001 10.0
-  slider_float JITTER_RAD: 0.0 0.0 10.0
+  slider_float LIGHT_DT: 2.2 0.001 10.0
+  checkbox ENABLE_DOF: true
+  slider_float DOF_RAD: 0.61 0.0 1.0
+  slider_float DOF_DIST: 0.18 0.001 0.25
 ui_dropdown_end
 
 ui_dropdown_start LIGHTS
-  slider_float LIGHT_INTENSITY: 10.0 1.0 100.0
-  slider_float LIGHT_THETA: 0.0 0.0 8.0
+  slider_float FAKE_AO: 1.2 0.0 2.0
+  slider_float LIGHT_INTENSITY: 28.0 1.0 100.0
+  slider_float LIGHT_THETA: 5.6 0.0 8.0
   slider_float LIGHT_PHI: 1.0 -2.0 2.0
 ui_dropdown_end:
 
@@ -94,13 +97,13 @@ ui_dropdown_start HDDA
 ui_dropdown_end
 
 ui_dropdown_start SCENE
-  slider_uint BACKGROUND: 1 0 2
+  slider_uint BACKGROUND: 0 0 2
   slider_float SCENE_SCALE: 0.01 0.001 0.1
   slider_uint VOLUME_IDX: 0 0 NUM_VOLUMES
 ui_dropdown_end
 
 ui_dropdown_start MISC
-  slider_float EXPOSURE: 0.3 0.01 1.0
+  slider_float EXPOSURE: 0.085 0.01 1.0
   slider_uint RENDER_MODE: 1 0 1
 
   ui_dropdown_start MISC_LODS

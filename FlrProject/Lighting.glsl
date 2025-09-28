@@ -32,6 +32,27 @@ vec3 raymarchLight(vec3 pos, vec3 viewDir, bool jitter, uint numIters, float lig
   vec3 lightThroughput = 1.0.xxx;
   vec3 lightDir = normalize(2.0 * randVec3(seed) - 1.0.xxx);
   float phase = phaseFunction(abs(dot(lightDir, viewDir)), G);
+  float dt = lightDt;
+  pos += lightDir * lightDt * 2.0;
+  for (int lightIter = 0; lightIter < numIters; lightIter++) {
+    pos += lightDt * lightDir;
+    if (getBit(0, ivec3(round(pos)))) {
+      lightThroughput *= exp(-DENSITY * lightDt).xxx;
+      if (dot(lightThroughput, lightThroughput) < 0.00001) {
+        lightThroughput = 0.0.xxx;
+        break;
+      }
+    }
+    lightDt *= 1.9;
+  }
+
+  return phase * sampleEnv(lightDir) * lightThroughput;
+}
+
+vec3 raymarchLight_OLD(vec3 pos, vec3 viewDir, bool jitter, uint numIters, float lightDt) {
+  vec3 lightThroughput = 1.0.xxx;
+  vec3 lightDir = normalize(2.0 * randVec3(seed) - 1.0.xxx);
+  float phase = phaseFunction(abs(dot(lightDir, viewDir)), G);
   pos += lightDir * lightDt * 2.0;
   for (int lightIter = 0; lightIter < numIters; lightIter++) {
     pos += lightDt * lightDir;
@@ -77,8 +98,13 @@ vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float unused) {
 }
 #endif
 
-bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 throughput) {
+bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 throughput, int iter) {
+  
   vec3 Li = raymarchLight(pos, dir, true, LIGHT_ITERS, LIGHT_DT);
+  {
+    float fakeAo = max(1.0 - FAKE_AO * float(iter) / ITERS, 0.4);
+    Li *= fakeAo;
+  }
   color += throughput * Li;
   throughput *= exp(-DENSITY * 1.0);
   if (dot(throughput, throughput) < 0.0001) 

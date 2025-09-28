@@ -1,12 +1,12 @@
 #version 460 core
 
-#define NUM_VOLUMES 2
-#define SLICE_WIDTH 2177
-#define SLICE_HEIGHT 1935
-#define BYTES_PER_PIXEL 1
-#define MAX_CUTOFF 255
-#define SCREEN_WIDTH 1440
-#define SCREEN_HEIGHT 1024
+#define NUM_VOLUMES 3
+#define SLICE_WIDTH 1530
+#define SLICE_HEIGHT 1805
+#define BYTES_PER_PIXEL 2
+#define MAX_CUTOFF 65535
+#define SCREEN_WIDTH 2560
+#define SCREEN_HEIGHT 1334
 #define NUM_LEVELS 4
 #define BR_FACTOR_LOG2 3
 #define BR_FACTOR 8
@@ -30,11 +30,11 @@
 #define CELLS_WIDTH 4096
 #define CELLS_HEIGHT 4096
 #define CELLS_DEPTH 8192
-#define DEFAULT_CUTOFF_LO 85
+#define DEFAULT_CUTOFF_LO 21845
 #define VOXEL_SUB_BUFFER_COUNT 16
 #define VOXEL_SUB_BUFFER_SIZE 16810049
 #define BATCH_SIZE 8
-#define UPLOAD_BATCH_SIZE_BASE32 8424990
+#define UPLOAD_BATCH_SIZE_BASE32 11046600
 
 struct IndexedIndirectArgs {
   uint indexCount;
@@ -90,7 +90,9 @@ layout(set=1, binding=7) uniform _UserUniforms {
 	float DENSITY;
 	float G;
 	float LIGHT_DT;
-	float JITTER_RAD;
+	float DOF_RAD;
+	float DOF_DIST;
+	float FAKE_AO;
 	float LIGHT_INTENSITY;
 	float LIGHT_THETA;
 	float LIGHT_PHI;
@@ -98,7 +100,9 @@ layout(set=1, binding=7) uniform _UserUniforms {
 	float EXPOSURE;
 	float LOD_SCALE;
 	float CLASSIC_RAYMARCH_DT;
+	bool EXPERIMENTAL_LIGHTING;
 	bool ACCUMULATE;
+	bool ENABLE_DOF;
 	bool STEP_UP;
 	bool STEP_DOWN;
 	bool LOD_CUTOFFS;
