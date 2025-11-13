@@ -121,6 +121,18 @@ checkbox ENABLE_STAGGERED_STREAMING: true
 # ---- STRUCTS / RESOURCES ----
 # -----------------------------
 
+# TODO check if this is enough...
+#uint MAX_FIELD_BLOCKS: L0_NUM_BLOCKS
+#struct FieldAllocator {
+#  uint numFieldBlocks;
+#}
+#struct_size: 4
+#structured_buffer fieldAllocator: FieldAllocator 1
+#structured_buffer packedFieldBuffer: uvec4 MAX_FIELD_BLOCKS
+#structured_buffer fieldOffsets: uint L0_NUM_BLOCKS
+uint DENSITY_FIELD_SIZE: L0_NUM_BLOCKS
+structured_buffer densityField: uint DENSITY_FIELD_SIZE
+
 # 4x4x4=64 bytes
 # 8x8x8=512 bits
 struct Block {

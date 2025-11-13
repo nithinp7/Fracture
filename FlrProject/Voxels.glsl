@@ -26,6 +26,26 @@ vec3 computeDir(vec2 uv) {
 }
 
 #ifdef IS_COMP_SHADER
+uint loadSliceBatchTexel(uint texelIdx) {
+  // TODO use a push constant for BYTES_PER_PIXEL...
+#if BYTES_PER_PIXEL == 1
+  uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 2];
+  val >>= 8 * ((texelIdx) & 3);
+  val &= 0xFF;
+#elif BYTES_PER_PIXEL == 2
+  uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1];
+  val >>= 16 * ((texelIdx) & 1); 
+  val &= 0xFFFF;
+#else
+  uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx];
+#endif
+  return val;
+}
+
+uvec3 reshape4x4x4(uint i) {
+  return i.xxx >> uvec3(0, 2, 4) & 3;
+}
+
 void CS_UploadVoxels() {
   uint sliceOffset = push0;
 
@@ -35,24 +55,16 @@ void CS_UploadVoxels() {
     return;
   }
 
+  // TODO these long loops are probably causing most of the streaming slowdown
+  // can spread work across wave and use wave opers to combine results...
   uvec3 globalIdStart = 4 * tileId + uvec3(0, 0, sliceOffset);
   uvec2 outVec = uvec2(0);
+  uint density = 0;
   for (uint i = 0; i < 64; i++) {
-    uvec3 localId = i.xxx >> uvec3(0, 2, 4) & 3;
+    uvec3 localId = reshape4x4x4(i);
     uvec3 globalId = globalIdStart + localId;
     uint texelIdx = (localId.z + 4 * tileId.z) * SLICE_WIDTH * SLICE_HEIGHT + SLICE_WIDTH * globalId.y + globalId.x;
-
-#if BYTES_PER_PIXEL == 1
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 2];
-    val >>= 8 * ((texelIdx) & 3);
-    val &= 0xFF;
-#elif BYTES_PER_PIXEL == 2
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1];
-    val >>= 16 * ((texelIdx) & 1); 
-    val &= 0xFFFF;
-#else
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx];
-#endif
+    uint val = loadSliceBatchTexel(texelIdx);
 
     float f = float(val) - float(CUTOFF_LO);
     f /= float(CUTOFF_HI - CUTOFF_LO);
@@ -61,14 +73,16 @@ void CS_UploadVoxels() {
     }
     
     if (f > 0.0) {
+      density += uint(f*(0xFFFF));
       outVec[i >> 5] |= 1 << (i & 31);
       setParentsAtomic(globalId); // TODO - do this in a separate pass, for less atomic contention?
     }
   }
-  
+
   VoxelAddr addr = constructVoxelAddr(0, globalIdStart);
   GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32] = outVec[0];
   GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32+1] = outVec[1];
+  atomicAdd(densityField[addr.blockIdx], density); // TODO this is dogshit
 }
 
 void CS_ClearBlocks() {
@@ -80,14 +94,16 @@ void CS_ClearBlocks() {
   GetVoxelBlock(blockIdx).bitfield[1] = uvec4(0);
   GetVoxelBlock(blockIdx).bitfield[2] = uvec4(0);
   GetVoxelBlock(blockIdx).bitfield[3] = uvec4(0);
+  densityField[blockIdx] = 0;
 }
 
-#define IsMeshletView() ((uniforms.inputMask & INPUT_BIT_SPACE) != 0)
+#define IsMeshletView() ((uniforms.inputMask & INPUT_BIT_M) != 0)
 #define IsDepthView() ((uniforms.inputMask & INPUT_BIT_F) != 0)
 #define IsIterHeatView() ((uniforms.inputMask & INPUT_BIT_I) != 0)
+#define IsDensityView() ((uniforms.inputMask & INPUT_BIT_K) != 0)
 
 bool IsDebugRenderActive() {
-  return IsMeshletView() || IsDepthView() || IsIterHeatView();
+  return IsMeshletView() || IsDepthView() || IsIterHeatView() || IsDensityView();
 }
 
 vec4 debugColor(float t, ivec3 globalId, int iter) {
@@ -96,9 +112,11 @@ vec4 debugColor(float t, ivec3 globalId, int iter) {
     color = vec4(2.0 * getCellColor(globalId), 1.0);
   } else if (IsDepthView()) {
     color = vec4(fract(t * 0.01).xxx, 1.0);
-  } else /*if (bIterHeatView)*/ {
+  } else if (IsIterHeatView()) {
     color = vec4((float(iter)/ITERS).xxx, 1.0);
-  } 
+  } else {
+    color = vec4(getDensity(globalId).xxx, 1.0);
+  }
   return color;
 }
 
@@ -163,7 +181,7 @@ void CS_RayMarch() {
           // outDisplay = debugColor(t, globalId, iter);
           return;
         } else {
-          if (!accumulateLight(pos, dir, 100.0 * CLASSIC_RAYMARCH_DT, Li, throughput, iter))
+          if (!accumulateLight(pos, dir, 100.0 * CLASSIC_RAYMARCH_DT, DENSITY, Li, throughput, iter))
             break;
         }
       }
@@ -216,7 +234,9 @@ void CS_RayMarch() {
             throughput = 0.0.xxx;
             break;
           } else {  
-            if (accumulateLight(pos, dir, stepDt, Li, throughput, iter))
+            if (accumulateLight(
+                  pos, dir, stepDt, getDensity(globalId), 
+                  Li, throughput, iter))
               stepDt = stepDDA(dda, stepAxis);
             else
               break;

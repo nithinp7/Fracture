@@ -71,6 +71,7 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
   // just to change the size of the upload buffer (which is required if switching to a volume with different dimensions)
   m_uploadBuffer = project->findBuffer("batchUploadBuffer");
   m_voxelBuffer = project->findBuffer("voxelBuffer");
+  m_densityBuffer = project->findBuffer("densityField");
   m_clearVoxelsCS = project->findComputeShader("CS_ClearBlocks");
   m_uploadVoxelsCS = project->findComputeShader("CS_UploadVoxels");
   m_cutoffLoUi = project->getSliderUint("CUTOFF_LO");
@@ -146,6 +147,7 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
     project->setPushConstants(m_blockCountL0);
     project->dispatchThreads(m_clearVoxelsCS, m_totalBlockCount - m_blockCountL0, 1, 1, commandBuffer, frame);
     project->barrierRW(m_voxelBuffer, commandBuffer);
+    project->barrierRW(m_densityBuffer, commandBuffer);
   }
 
   if (m_curStreamingSlice < m_numSlices) {
@@ -168,6 +170,7 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
       uint32_t threadsY = min(m_cellsHeight, m_sliceHeight) / 4;
       project->dispatchThreads(m_uploadVoxelsCS, threadsX, threadsY, i / 4, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
+      project->barrierRW(m_densityBuffer, commandBuffer);
 
       if (*m_bStaggeredStreamingUi) {
         m_curStreamingSlice += i;

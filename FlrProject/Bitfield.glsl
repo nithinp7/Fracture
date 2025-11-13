@@ -88,4 +88,13 @@ void setParentsAtomic(uvec3 globalId) {
     atomicOr(GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32], 1 << addr.bitOffset);
   }
 }
+
+float getDensity(ivec3 globalId) {
+  if (any(lessThan(globalId, ivec3(0))) ||
+      any(greaterThanEqual(uvec3(globalId), getGridDims(0)))) 
+    return 0.0;
+  
+  VoxelAddr addr = constructVoxelAddr(0, uvec3(globalId));
+  return DENSITY * float(densityField[addr.blockIdx]) / float(0xFFFF);
+}
 #endif // _BITFIELD_GLSL_

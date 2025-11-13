@@ -67,6 +67,7 @@ private:
 
   flr::BufferId m_uploadBuffer;
   flr::BufferId m_voxelBuffer;
+  flr::BufferId m_densityBuffer;
   flr::ComputeShaderId m_clearVoxelsCS;
   flr::ComputeShaderId m_uploadVoxelsCS;
 };

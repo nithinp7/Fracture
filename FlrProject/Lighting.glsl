@@ -24,21 +24,31 @@ vec3 sampleEnv(vec3 dir) {
 float phaseFunction(float cosTheta, float g) {
   float g2 = g * g;
   return  
-      3.0 * (1.0 - g2) * (1.0 + cosTheta * cosTheta) / 
+      (1.0 - g2) * (1.0 + cosTheta * cosTheta) / 
       (8 * PI * (2.0 + g2) * pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5));
+}
+
+vec3 densityToTint(float d) {
+  float c = cos(d);
+  float s = sin(d);
+  return vec3(1.0, 0.0, 0.0);//vec3(0.2 + 0.2 * c, 1.0, 0.2 + 0.2 * s);
 }
 
 vec3 raymarchLight(vec3 pos, vec3 viewDir, bool jitter, uint numIters, float lightDt) {
   vec3 lightThroughput = 1.0.xxx;
   vec3 lightDir = normalize(2.0 * randVec3(seed) - 1.0.xxx);
+  // float backscatter = rng(seed) * 2.0 - 1.0;
+  // vec3 lightDir = backscatter * LocalToWorld(viewDir) * sampleHemisphereCosine(seed);
   float phase = phaseFunction(abs(dot(lightDir, viewDir)), G);
   float dt = lightDt;
   pos += lightDir * lightDt * 2.0;
   for (int lightIter = 0; lightIter < numIters; lightIter++) {
     pos += lightDt * lightDir;
-    if (getBit(0, ivec3(round(pos)))) {
-      lightThroughput *= exp(-DENSITY * lightDt).xxx;
-      if (dot(lightThroughput, lightThroughput) < 0.00001) {
+    ivec3 globalId = ivec3(round(pos));
+    if (getBit(0, globalId)) {
+      float density = getDensity(globalId);
+      lightThroughput *= exp(-density * lightDt).xxx;
+      if (dot(lightThroughput, lightThroughput) < 0.01) {
         lightThroughput = 0.0.xxx;
         break;
       }
@@ -98,15 +108,15 @@ vec3 raymarchLight(vec3 pos, bool jitter, uint numIters, float unused) {
 }
 #endif
 
-bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 throughput, int iter) {
-  
+bool accumulateLight(vec3 pos, vec3 dir, float dt, float density, inout vec3 color, inout vec3 throughput, int iter) {
+  // TODO: this is a bit of a hack, assumes constant density along light ray...
   vec3 Li = raymarchLight(pos, dir, true, LIGHT_ITERS, LIGHT_DT);
   {
     float fakeAo = max(1.0 - FAKE_AO * float(iter) / ITERS, 0.4);
     Li *= fakeAo;
   }
   color += throughput * Li;
-  throughput *= exp(-DENSITY * 1.0);
+  throughput *= exp(-density * dt);
   if (dot(throughput, throughput) < 0.0001) 
   {
     throughput = 0.0.xxx;
