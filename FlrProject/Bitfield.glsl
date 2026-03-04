@@ -47,6 +47,15 @@ uint getLocalIdx(uvec3 id) {
   return (offset64Idx << 6) | bitIdx;
 }
 
+// inverse of above routine
+uvec3 getLocalId(uint localIdx) {
+  uint offset64Idx = localIdx >> 6;
+  uvec3 offset64Id = (offset64Idx.xxx >> uvec3(0, 1, 2)) & 1;
+  uint bitIdx = localIdx & 63;
+  uvec3 bitId = (bitIdx.xxx >> uvec3(0, 2, 4)) & 3;
+  return (offset64Id << 2) | bitId;
+}
+
 VoxelAddr constructVoxelAddr(uint blockIdx, uint localIdx) {
   VoxelAddr addr;
   addr.blockIdx = blockIdx;
@@ -73,19 +82,41 @@ bool getBit(VoxelAddr addr) {
   return bool((GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32] >> addr.bitOffset) & 1);
 }
 
+#ifdef ENABLE_DDA_CACHE
+uint cachedBlockIdx;
+Block cachedBlock;
+void initDdaCache() {cachedBlockIdx = ~0;}
+#else // if !ENABLE_DDA_CACHE
+void initDdaCache() {}
+#endif // !ENABLE_DDA_CACHE
 bool getBit(uint level, ivec3 globalId) {
   if (any(lessThan(globalId, ivec3(0))) ||
       any(greaterThanEqual(uvec3(globalId), getGridDims(level)))) 
     return false;
   
   VoxelAddr addr = constructVoxelAddr(level, uvec3(globalId));
+#ifdef ENABLE_DDA_CACHE
+  if (addr.blockIdx != cachedBlockIdx) {
+    cachedBlockIdx = addr.blockIdx;
+    cachedBlock = GetVoxelBlock(addr.blockIdx);
+  }
+  return bool((cachedBlock.bitfield[addr.offsetBase128][addr.offsetBase32] >> addr.bitOffset) & 1);
+#else
   return getBit(addr);
+#endif
 }
 
 void setParentsAtomic(uvec3 globalId) {
+  // uvec3 l1Id = globalId >> BR_FACTOR_LOG2;
+  // VoxelAddr l1Addr = constructVoxelAddr(1, l1Id);
+
   for (uint level = 1; level < NUM_LEVELS; level++) {
     VoxelAddr addr = constructVoxelAddr(level, globalId >> (BR_FACTOR_LOG2 * level));
     atomicOr(GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32], 1 << addr.bitOffset);
   }
+}
+
+void stageL0Block(VoxelAddr l0addr) {
+  
 }
 #endif // _BITFIELD_GLSL_

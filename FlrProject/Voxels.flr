@@ -47,6 +47,7 @@ uint L1_NUM_BLOCKS: L1_BLOCKS_DIM_X*L1_BLOCKS_DIM_Y*L1_BLOCKS_DIM_Z
 uint L0_NUM_BLOCKS: L0_BLOCKS_DIM_X*L0_BLOCKS_DIM_Y*L0_BLOCKS_DIM_Z
 
 uint TOTAL_NUM_BLOCKS: L3_NUM_BLOCKS+L2_NUM_BLOCKS+L1_NUM_BLOCKS+L0_NUM_BLOCKS
+#uint NUM_DENSE_BLOCKS: L3_NUM_BLOCKS+L2_NUM_BLOCKS+L1_NUM_BLOCKS
 
 uint CELLS_WIDTH: L0_BLOCKS_DIM_X*8
 uint CELLS_HEIGHT: L0_BLOCKS_DIM_Y*8
@@ -59,8 +60,10 @@ uint DEFAULT_CUTOFF_LO: MAX_CUTOFF/3
 # -----------------
 
 checkbox ACCUMULATE: false
-slider_float DENSITY: 0.3 0.01 5.0
+slider_float DENSITY_PARAM: 0.3 0.01 5.0
+color_picker SCATTER_COL: 1.0 1.0 1.0 1.0
 slider_float G: 0.31 -1.0 1.0
+slider_float TR_ROUGH: 0.3 0.0 1.0
 ui_separator
 slider_uint CUTOFF_LO: DEFAULT_CUTOFF_LO 0 MAX_CUTOFF
 slider_uint CUTOFF_HI: MAX_CUTOFF 0 MAX_CUTOFF
@@ -78,9 +81,13 @@ ui_dropdown_start SAMPLING
   slider_uint ITERS: 350 20 1000
   slider_uint LIGHT_ITERS: 8 4 100
   slider_float LIGHT_DT: 2.2 0.001 10.0
+  slider_float ABSORB_PREPOST: 0.0 0.0 1.0
+  ui_separator
   checkbox ENABLE_DOF: true
   slider_float DOF_RAD: 0.61 0.0 1.0
   slider_float DOF_DIST: 0.18 0.001 0.25
+  ui_separator
+  slider_float TEMPORAL_BLEND: 0.0 0.0 0.1
 ui_dropdown_end
 
 ui_dropdown_start LIGHTS
@@ -102,17 +109,29 @@ ui_dropdown_start SCENE
   slider_uint VOLUME_IDX: 0 0 NUM_VOLUMES
 ui_dropdown_end
 
-ui_dropdown_start MISC
+ui_separator
+ui_dropdown_start POSTFX:
   slider_float EXPOSURE: 0.085 0.01 1.0
-  slider_uint RENDER_MODE: 1 0 1
+  checkbox ENABLE_POSTFX: true
+  checkbox VARY_POSTFX_NOISE: false
+  slider_float POSTFX_R: 1.0 0.01 15.0
+  slider_float POSTFX_STDEV: 1.0 0.01 15.0
+  uint MAX_POSTFX_SAMPLES: 25
+  slider_uint POSTFX_SAMPLES: 1 1 MAX_POSTFX_SAMPLES
+ui_dropdown_end
+ui_separator
 
-  ui_dropdown_start MISC_LODS
-    checkbox LOD_CUTOFFS: false
-    checkbox LOD_JITTER: false
-    slider_float LOD_SCALE: 1.0 0.1 2.0
-  ui_dropdown_end
-  
-  slider_float CLASSIC_RAYMARCH_DT: 0.1 0.001 0.1
+ui_dropdown_start LODS
+  checkbox LOD_CUTOFFS: false
+  slider_float LOD_JITTER: 0.0 0.0 1.0
+  slider_float LOD_SCALE: 1.0 0.1 2.0
+
+  ui_separator
+  checkbox THR_CUTOFFS: true
+  slider_float THR_CUT0: 2.5 0.0 3.0
+  slider_float THR_CUT1: 1.0 0.0 3.0
+  slider_float THR_CUT2: 0.5 0.0 3.0
+  slider_float THR_CUT3: 0.1 0.0 3.0
 ui_dropdown_end
 
 checkbox ENABLE_STAGGERED_STREAMING: true
@@ -130,18 +149,25 @@ struct_size: 64
 
 uint VOXEL_SUB_BUFFER_COUNT: 16
 uint VOXEL_SUB_BUFFER_SIZE: (TOTAL_NUM_BLOCKS+VOXEL_SUB_BUFFER_COUNT-1)/VOXEL_SUB_BUFFER_COUNT
+#uint VOXEL_SUB_BUFFER_SIZE: (NUM_DENSE_BLOCKS+VOXEL_SUB_BUFFER_COUNT-1)/VOXEL_SUB_BUFFER_COUNT
 structured_buffer voxelBuffer(VOXEL_SUB_BUFFER_COUNT): Block VOXEL_SUB_BUFFER_SIZE
-
-struct GlobalState {
-  uint accumFrames;
-}
-struct_size: 4
-structured_buffer globalState: GlobalState 1
 
 uint BATCH_SIZE: 8
 uint UPLOAD_BATCH_SIZE_BASE32: SLICE_WIDTH * SLICE_HEIGHT * BYTES_PER_PIXEL * BATCH_SIZE / 4
 structured_buffer batchUploadBuffer(2): uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
+
+#struct BlockAllocator {
+#  uint allocatedSlots;
+#  uint failed;
+#}
+#struct_size: 8
+#structured_buffer blockAllocator: BlockAllocator 1
+
+#structured_buffer blockOffsets: uint L1_NUM_BLOCKS
+
+#uint L0_NUM_BLOCKS_REDUCED: L0_NUM_BLOCKS / 16
+#structured_buffer l0Blocks: Block L0_NUM_BLOCKS_REDUCED
 
 texture_file EnvironmentMap: "C:/Users/nithi/Documents/Code/Fluorescence/Extern/Althea/Content/HDRI_Skybox/NeoclassicalInterior.hdr" hdr
 
@@ -159,19 +185,14 @@ struct_size: 8
 # ---- SHADERS ----
 # -----------------
 
-compute_shader CS_UploadVoxels: 8 8 1
+compute_shader CS_UploadVoxels: 32 1 1
 compute_shader CS_ClearBlocks: 32 1 1
 
-compute_shader CS_Update: 1 1 1
 compute_shader CS_RayMarch: 8 8 1
 
 # -----------------
 # --- RENDERING ---
 # -----------------
-
-barrier: globalState
-compute_dispatch: CS_Update 1 1 1
-barrier: globalState
 
 transition_layout: RayMarchImage image
 compute_dispatch: CS_RayMarch SCREEN_WIDTH SCREEN_HEIGHT 1

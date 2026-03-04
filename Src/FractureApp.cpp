@@ -34,7 +34,7 @@ void FractureApp::setupParams(flr::FlrParams& params) {
       auto extension = p.parseStringLiteral();
       p.parseWhitespace();
       // format validation
-      assert(p.c == 0);
+      //assert(p.c == 0);
       assert(folder && fileTemplate);
       std::string folderStr(*folder);
       std::string fileTemplateStr(*fileTemplate);
@@ -127,7 +127,7 @@ void FractureApp::selectVolume(uint32_t volumeIdx) {
   m_sliceHeight = tmpImg.height;
 
   uint32_t numSlices = 1;
-  for (; numSlices < m_cellsDepth; numSlices++) {
+  for (; numSlices < 10000; numSlices++) {
     createFileName(volumeIdx, numSlices, filePath, 2048);
     if (!Utilities::checkFileExists(filePath))
       break;
@@ -158,19 +158,21 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
 
       void* dst = uploadBuffer->mapMemory();
       uint32_t sliceByteSize = m_bytesPerPixel * m_sliceWidth * m_sliceHeight;
-      int i = 0;
-      for (int offset = 0; i < m_batchSize && (m_curStreamingSlice + i) < m_numSlices; i++, offset += sliceByteSize)
-        memcpy((char*)dst + offset, m_slicesImageData[i].data.data(), sliceByteSize);
+      int batchSlices = 0;
+      for (int offset = 0; batchSlices < m_batchSize && (m_curStreamingSlice + batchSlices) < m_numSlices; batchSlices++, offset += sliceByteSize)
+        memcpy((char*)dst + offset, m_slicesImageData[batchSlices].data.data(), sliceByteSize);
       uploadBuffer->unmapMemory();
 
       project->setPushConstants(m_curStreamingSlice);
-      uint32_t threadsX = min(m_cellsWidth, m_sliceWidth) / 4;
-      uint32_t threadsY = min(m_cellsHeight, m_sliceHeight) / 4;
-      project->dispatchThreads(m_uploadVoxelsCS, threadsX, threadsY, i / 4, commandBuffer, frame);
+      uint32_t threadsX = min(m_cellsWidth, m_sliceWidth) / 8;
+      uint32_t threadsY = min(m_cellsHeight, m_sliceHeight) / 8;
+      uint32_t teamDims = 32;
+      //project->dispatchThreads(m_uploadVoxelsCS, teamDims * threadsX, threadsY, batchSlices / 8, commandBuffer, frame);
+      project->dispatch(m_uploadVoxelsCS, threadsX, threadsY, batchSlices / 8, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
 
       if (*m_bStaggeredStreamingUi) {
-        m_curStreamingSlice += i;
+        m_curStreamingSlice += batchSlices;
         break;
       }
       else {
