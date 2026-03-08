@@ -71,7 +71,9 @@ void FractureApp::createRenderState(flr::Project* project, SingleTimeCommandBuff
   // just to change the size of the upload buffer (which is required if switching to a volume with different dimensions)
   m_uploadBuffer = project->findBuffer("batchUploadBuffer");
   m_voxelBuffer = project->findBuffer("voxelBuffer");
-  m_clearVoxelsCS = project->findComputeShader("CS_ClearBlocks");
+  m_blockOffsets = project->findBuffer("blockOffsets");
+  m_blockAllocator = project->findBuffer("blockAllocator");
+  m_resetVolumeTask = project->findTaskBlock("RESET_VOLUME");
   m_uploadVoxelsCS = project->findComputeShader("CS_UploadVoxels");
   m_cutoffLoUi = project->getSliderUint("CUTOFF_LO");
   m_cutoffHiUi = project->getSliderUint("CUTOFF_HI");
@@ -143,9 +145,7 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
     // TODO actually handle volume changes by reverse triggering project reload on flr game...
     m_curStreamingSlice = 0;
 
-    project->setPushConstants(m_blockCountL0);
-    project->dispatchThreads(m_clearVoxelsCS, m_totalBlockCount - m_blockCountL0, 1, 1, commandBuffer, frame);
-    project->barrierRW(m_voxelBuffer, commandBuffer);
+    project->executeTaskBlock(m_resetVolumeTask, commandBuffer, frame);
   }
 
   if (m_curStreamingSlice < m_numSlices) {
@@ -170,6 +170,8 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
       //project->dispatchThreads(m_uploadVoxelsCS, teamDims * threadsX, threadsY, batchSlices / 8, commandBuffer, frame);
       project->dispatch(m_uploadVoxelsCS, threadsX, threadsY, batchSlices / 8, commandBuffer, frame);
       project->barrierRW(m_voxelBuffer, commandBuffer);
+      project->barrierRW(m_blockOffsets, commandBuffer);
+      project->barrierRW(m_blockAllocator, commandBuffer);
 
       if (*m_bStaggeredStreamingUi) {
         m_curStreamingSlice += batchSlices;

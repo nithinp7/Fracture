@@ -67,6 +67,8 @@ private:
 
   flr::BufferId m_uploadBuffer;
   flr::BufferId m_voxelBuffer;
-  flr::ComputeShaderId m_clearVoxelsCS;
+  flr::BufferId m_blockOffsets;
+  flr::BufferId m_blockAllocator;
   flr::ComputeShaderId m_uploadVoxelsCS;
+  flr::TaskBlockId m_resetVolumeTask;
 };

@@ -1,6 +1,8 @@
 #ifndef _BITFIELD_GLSL_
 #define _BITFIELD_GLSL_
 
+#define SPARSE_L0_ALLOC_ATTEMPTS 4
+
 #define GetVoxelBlock(blockIdx) voxelBuffer(blockIdx/VOXEL_SUB_BUFFER_SIZE)[blockIdx%VOXEL_SUB_BUFFER_SIZE]
 
 struct VoxelAddr {
@@ -9,6 +11,12 @@ struct VoxelAddr {
   uint offsetBase32;
   uint bitOffset;
 };
+
+uint hashCoords(ivec3 globalId) {
+  uint hash = uint(abs((globalId.x * 92837111) ^ (globalId.y * 689287499) ^ (globalId.z * 283923481)));
+  // return hash == 0 ? ~0 : hash;
+  return hash;
+}
 
 uint getBlockOffset(uint level) {
   return
@@ -96,10 +104,35 @@ bool getBit(uint level, ivec3 globalId) {
   
   VoxelAddr addr = constructVoxelAddr(level, uvec3(globalId));
 #ifdef ENABLE_DDA_CACHE
-  if (addr.blockIdx != cachedBlockIdx) {
-    cachedBlockIdx = addr.blockIdx;
-    cachedBlock = GetVoxelBlock(addr.blockIdx);
+  if (addr.blockIdx == cachedBlockIdx) {
+    return bool((cachedBlock.bitfield[addr.offsetBase128][addr.offsetBase32] >> addr.bitOffset) & 1);
   }
+  cachedBlockIdx = addr.blockIdx;
+#endif
+#if ENABLE_SPARSE_L0
+  if (level == 0) {
+    VoxelAddr parentBit = constructVoxelAddr(1, uvec3(globalId)>>BR_FACTOR_LOG2);
+    if (!getBit(parentBit))
+      return false;
+    
+    uint slot = hashCoords(globalId >> 3)%SPARSE_L0_SLOTS;
+    bool bFound = false;
+    for (int attempt=0; attempt<SPARSE_L0_ALLOC_ATTEMPTS; attempt++) {
+      if (blockOffsets[2*slot] == addr.blockIdx) {
+        bFound = true;
+        addr.blockIdx = blockOffsets[2*slot+1];
+        break;
+      } else {
+        slot++;
+      }
+    }
+
+    if (!bFound || addr.blockIdx == ~0)
+      return true;
+  }
+#endif
+#ifdef ENABLE_DDA_CACHE
+  cachedBlock = GetVoxelBlock(addr.blockIdx);
   return bool((cachedBlock.bitfield[addr.offsetBase128][addr.offsetBase32] >> addr.bitOffset) & 1);
 #else
   return getBit(addr);
@@ -107,16 +140,9 @@ bool getBit(uint level, ivec3 globalId) {
 }
 
 void setParentsAtomic(uvec3 globalId) {
-  // uvec3 l1Id = globalId >> BR_FACTOR_LOG2;
-  // VoxelAddr l1Addr = constructVoxelAddr(1, l1Id);
-
   for (uint level = 1; level < NUM_LEVELS; level++) {
     VoxelAddr addr = constructVoxelAddr(level, globalId >> (BR_FACTOR_LOG2 * level));
     atomicOr(GetVoxelBlock(addr.blockIdx).bitfield[addr.offsetBase128][addr.offsetBase32], 1 << addr.bitOffset);
   }
-}
-
-void stageL0Block(VoxelAddr l0addr) {
-  
 }
 #endif // _BITFIELD_GLSL_

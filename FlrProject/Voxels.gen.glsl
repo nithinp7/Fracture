@@ -7,6 +7,9 @@
 #define MAX_CUTOFF 65535
 #define SCREEN_WIDTH 1440
 #define SCREEN_HEIGHT 1024
+#define ENABLE_SPARSE_L0 1
+#define L0_SPARSITY 1024
+#define L0_SPARSE_RATIO 4
 #define NUM_LEVELS 4
 #define BR_FACTOR_LOG2 3
 #define BR_FACTOR 8
@@ -25,17 +28,21 @@
 #define L3_NUM_BLOCKS 2
 #define L2_NUM_BLOCKS 1024
 #define L1_NUM_BLOCKS 524288
-#define L0_NUM_BLOCKS 268435456
-#define TOTAL_NUM_BLOCKS 268960770
+#define L0_NUM_BLOCKS 262144
+#define TOTAL_NUM_BLOCKS 787458
 #define CELLS_WIDTH 4096
 #define CELLS_HEIGHT 4096
 #define CELLS_DEPTH 8192
 #define DEFAULT_CUTOFF_LO 21845
 #define MAX_POSTFX_SAMPLES 25
 #define VOXEL_SUB_BUFFER_COUNT 16
-#define VOXEL_SUB_BUFFER_SIZE 16810049
+#define VOXEL_SUB_BUFFER_SIZE 49217
 #define BATCH_SIZE 8
 #define UPLOAD_BATCH_SIZE_BASE32 9555072
+#define SPARSE_L0_SLOTS 1048576
+#define L0_HASHMAP_SIZE 2097152
+#define NON_L0_BLOCKS 525314
+#define MAP_CLEAR_THREADS 524288
 
 struct IndexedIndirectArgs {
   uint indexCount;
@@ -62,6 +69,11 @@ struct Block {
   uvec4 bitfield[4];
 };
 
+struct BlockAllocator {
+  uint allocatedSlots;
+  uint failed;
+};
+
 struct VertexOutput {
   vec2 uv;
 };
@@ -70,11 +82,13 @@ layout(set=1,binding=1) buffer BUFFER_voxelBuffer {  Block _INNER_voxelBuffer[];
 #define voxelBuffer(IDX) _HEAP_voxelBuffer[IDX]._INNER_voxelBuffer
 layout(set=1,binding=2) buffer BUFFER_batchUploadBuffer {  uint _INNER_batchUploadBuffer[]; } _HEAP_batchUploadBuffer [2];
 #define batchUploadBuffer(IDX) _HEAP_batchUploadBuffer[IDX]._INNER_batchUploadBuffer
-layout(set=1,binding=3, rgba32f) uniform image2D RayMarchImage;
-layout(set=1,binding=4) uniform sampler2D EnvironmentMap;
-layout(set=1,binding=5) uniform sampler2D RayMarchTexture;
+layout(set=1,binding=3) buffer BUFFER_blockAllocator {  BlockAllocator blockAllocator[]; };
+layout(set=1,binding=4) buffer BUFFER_blockOffsets {  uint blockOffsets[]; };
+layout(set=1,binding=5, rgba32f) uniform image2D RayMarchImage;
+layout(set=1,binding=6) uniform sampler2D EnvironmentMap;
+layout(set=1,binding=7) uniform sampler2D RayMarchTexture;
 
-layout(set=1, binding=6) uniform _UserUniforms {
+layout(set=1, binding=8) uniform _UserUniforms {
 	vec4 SCATTER_COL;
 	uint CUTOFF_LO;
 	uint CUTOFF_HI;
@@ -125,7 +139,7 @@ layout(set=1, binding=6) uniform _UserUniforms {
 
 #include <FlrLib/Fluorescence.glsl>
 
-layout(set=1, binding=7) uniform _CameraUniforms { PerspectiveCamera camera; };
+layout(set=1, binding=9) uniform _CameraUniforms { PerspectiveCamera camera; };
 
 
 
@@ -146,6 +160,10 @@ void main() { CS_UploadVoxels(); }
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 void main() { CS_ClearBlocks(); }
 #endif // _ENTRY_POINT_CS_ClearBlocks
+#ifdef _ENTRY_POINT_CS_ClearSpatialHash
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+void main() { CS_ClearSpatialHash(); }
+#endif // _ENTRY_POINT_CS_ClearSpatialHash
 #ifdef _ENTRY_POINT_CS_RayMarch
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main() { CS_RayMarch(); }

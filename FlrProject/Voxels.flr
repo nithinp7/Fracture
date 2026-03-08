@@ -20,6 +20,10 @@ enable_feature: perspective_camera
 
 # TODO - support exponentiation, bitshifts, etc in flr expression parser...
 
+uint ENABLE_SPARSE_L0: 1
+uint L0_SPARSITY: 1024
+uint L0_SPARSE_RATIO: 4
+
 uint NUM_LEVELS: 4
 
 uint BR_FACTOR_LOG2: 3
@@ -44,10 +48,9 @@ uint L0_BLOCKS_DIM_Z: L1_BLOCKS_DIM_Z*BR_FACTOR
 uint L3_NUM_BLOCKS: L3_BLOCKS_DIM_X*L3_BLOCKS_DIM_Y*L3_BLOCKS_DIM_Z
 uint L2_NUM_BLOCKS: L2_BLOCKS_DIM_X*L2_BLOCKS_DIM_Y*L2_BLOCKS_DIM_Z
 uint L1_NUM_BLOCKS: L1_BLOCKS_DIM_X*L1_BLOCKS_DIM_Y*L1_BLOCKS_DIM_Z
-uint L0_NUM_BLOCKS: L0_BLOCKS_DIM_X*L0_BLOCKS_DIM_Y*L0_BLOCKS_DIM_Z
+uint L0_NUM_BLOCKS: L0_BLOCKS_DIM_X*L0_BLOCKS_DIM_Y*L0_BLOCKS_DIM_Z / (1 + (L0_SPARSITY-1) * ENABLE_SPARSE_L0)
 
 uint TOTAL_NUM_BLOCKS: L3_NUM_BLOCKS+L2_NUM_BLOCKS+L1_NUM_BLOCKS+L0_NUM_BLOCKS
-#uint NUM_DENSE_BLOCKS: L3_NUM_BLOCKS+L2_NUM_BLOCKS+L1_NUM_BLOCKS
 
 uint CELLS_WIDTH: L0_BLOCKS_DIM_X*8
 uint CELLS_HEIGHT: L0_BLOCKS_DIM_Y*8
@@ -149,7 +152,6 @@ struct_size: 64
 
 uint VOXEL_SUB_BUFFER_COUNT: 16
 uint VOXEL_SUB_BUFFER_SIZE: (TOTAL_NUM_BLOCKS+VOXEL_SUB_BUFFER_COUNT-1)/VOXEL_SUB_BUFFER_COUNT
-#uint VOXEL_SUB_BUFFER_SIZE: (NUM_DENSE_BLOCKS+VOXEL_SUB_BUFFER_COUNT-1)/VOXEL_SUB_BUFFER_COUNT
 structured_buffer voxelBuffer(VOXEL_SUB_BUFFER_COUNT): Block VOXEL_SUB_BUFFER_SIZE
 
 uint BATCH_SIZE: 8
@@ -157,17 +159,16 @@ uint UPLOAD_BATCH_SIZE_BASE32: SLICE_WIDTH * SLICE_HEIGHT * BYTES_PER_PIXEL * BA
 structured_buffer batchUploadBuffer(2): uint UPLOAD_BATCH_SIZE_BASE32
   enable_cpu_access
 
-#struct BlockAllocator {
-#  uint allocatedSlots;
-#  uint failed;
-#}
-#struct_size: 8
-#structured_buffer blockAllocator: BlockAllocator 1
+struct BlockAllocator {
+  uint allocatedSlots;
+  uint failed;
+}
+struct_size: 8
+structured_buffer blockAllocator: BlockAllocator 1
 
-#structured_buffer blockOffsets: uint L1_NUM_BLOCKS
-
-#uint L0_NUM_BLOCKS_REDUCED: L0_NUM_BLOCKS / 16
-#structured_buffer l0Blocks: Block L0_NUM_BLOCKS_REDUCED
+uint SPARSE_L0_SLOTS: L0_SPARSE_RATIO*L0_NUM_BLOCKS
+uint L0_HASHMAP_SIZE: 2*SPARSE_L0_SLOTS
+structured_buffer blockOffsets: uint L0_HASHMAP_SIZE
 
 texture_file EnvironmentMap: "C:/Users/nithi/Documents/Code/Fluorescence/Extern/Althea/Content/HDRI_Skybox/NeoclassicalInterior.hdr" hdr
 
@@ -187,6 +188,7 @@ struct_size: 8
 
 compute_shader CS_UploadVoxels: 32 1 1
 compute_shader CS_ClearBlocks: 32 1 1
+compute_shader CS_ClearSpatialHash: 32 1 1
 
 compute_shader CS_RayMarch: 8 8 1
 
@@ -197,6 +199,14 @@ compute_shader CS_RayMarch: 8 8 1
 transition_layout: RayMarchImage image
 compute_dispatch: CS_RayMarch SCREEN_WIDTH SCREEN_HEIGHT 1
 transition_layout: RayMarchImage texture
+
+task_block_start RESET_VOLUME:
+  uint NON_L0_BLOCKS: TOTAL_NUM_BLOCKS - L0_NUM_BLOCKS
+  dispatch_threads: CS_ClearBlocks NON_L0_BLOCKS 1 1
+  uint MAP_CLEAR_THREADS: SPARSE_L0_SLOTS / 2
+  dispatch_threads: CS_ClearSpatialHash MAP_CLEAR_THREADS 1 1
+  barrier: voxelBuffer blockOffsets blockAllocator
+task_block_end
 
 render_pass DISPLAY_PASS:
   store_attachments: outDisplay=DisplayImage

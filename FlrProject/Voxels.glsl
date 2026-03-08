@@ -5,7 +5,7 @@
 #extension GL_KHR_shader_subgroup_ballot : enable
 #extension GL_KHR_shader_subgroup_vote : enable
 
-#define ENABLE_DDA_CACHE
+// #define ENABLE_DDA_CACHE
 #include "HDDA.glsl"
 #include "Bitfield.glsl"
 
@@ -32,6 +32,15 @@ vec3 computeDir(vec2 uv) {
 }
 
 #ifdef IS_COMP_SHADER
+uint allocateBlock() {
+  uint offset = atomicAdd(blockAllocator[0].allocatedSlots, 1);
+  if (offset >= L0_NUM_BLOCKS) {
+    blockAllocator[0].failed = 1;
+    return ~0;
+  }
+  return offset;
+}
+
 void CS_UploadVoxels() {
   uint tid = gl_SubgroupInvocationID;
   uint sliceOffset = push0;
@@ -78,18 +87,45 @@ void CS_UploadVoxels() {
       outVec = dword;
   }
   
+  bAnySet = subgroupBroadcastFirst(bAnySet);
   if (tid == 0 && bAnySet) {
     setParentsAtomic(globalIdStart);
   }
 
+  VoxelAddr addr = constructVoxelAddr(0, globalIdStart);
+#if ENABLE_SPARSE_L0
+  if (!bAnySet)
+    return;
+
+  uint offset = ~0;
+  if (tid == 0) {
+    uint slot = hashCoords(ivec3(globalIdStart >> 3))%SPARSE_L0_SLOTS;
+    uint prevValue = ~0;
+    for (int attempt=0; attempt<SPARSE_L0_ALLOC_ATTEMPTS; attempt++) {
+      prevValue = atomicCompSwap(blockOffsets[2*slot], 0, addr.blockIdx);
+      if (prevValue == 0) {
+        // found a free slot
+        offset = allocateBlock();
+        blockOffsets[2*slot+1] = offset;
+        break;
+      } else {
+        // continue linear probing
+        slot++;
+      }
+    }
+  }
+
+  addr.blockIdx = subgroupBroadcastFirst(offset);
+  if (addr.blockIdx == ~0)
+    return;
+#endif
   if (tid < 16) {
-    VoxelAddr addr = constructVoxelAddr(0, globalIdStart);
     GetVoxelBlock(addr.blockIdx).bitfield[tid>>2][tid&3] = outVec;
   }
 }
 
 void CS_ClearBlocks() {
-  uint blockIdx = gl_GlobalInvocationID.x + push0;
+  uint blockIdx = gl_GlobalInvocationID.x + L0_NUM_BLOCKS;
   if (blockIdx >= TOTAL_NUM_BLOCKS)
     return;
   
@@ -97,34 +133,54 @@ void CS_ClearBlocks() {
   GetVoxelBlock(blockIdx).bitfield[1] = uvec4(0);
   GetVoxelBlock(blockIdx).bitfield[2] = uvec4(0);
   GetVoxelBlock(blockIdx).bitfield[3] = uvec4(0);
+}
 
-  // if (gl_GlobalInvocationID.x < L1_NUM_BLOCKS) {
-  //   blockOffsets[gl_GlobalInvocationID.x] = 0;
-  // }
+void CS_ClearSpatialHash() {
+  uint gid = gl_GlobalInvocationID.x;
+  if (gid >= MAP_CLEAR_THREADS)
+    return;
 
-  // if (gl_GlobalInvocationID.x == 0) {
-  //   blockAllocator[0].allocatedSlots = 0;
-  //   blockAllocator[0].failed = 0;
-  // }
+  for (uint i=0; i<4; i++)
+    blockOffsets[4*gid+i] = 0;
+
+  if (gid == 0) {
+    blockAllocator[0].allocatedSlots = 0;
+    blockAllocator[0].failed = 0;
+  }
 }
 
 #define IsMeshletView() ((uniforms.inputMask & INPUT_BIT_SPACE) != 0)
 #define IsDepthView() ((uniforms.inputMask & INPUT_BIT_F) != 0)
 #define IsIterHeatView() ((uniforms.inputMask & INPUT_BIT_I) != 0)
+#define IsHashCollisionView() ((uniforms.inputMask & INPUT_BIT_H) != 0)
 
 bool IsDebugRenderActive() {
-  return IsMeshletView() || IsDepthView() || IsIterHeatView();
+  return IsMeshletView() || IsDepthView() || IsIterHeatView() || IsHashCollisionView();
 }
 
-vec4 debugColor(float t, ivec3 globalId, int iter) {
-  vec4 color = vec4(0.0.xxx, 1.0);
+vec3 debugColor(float t, ivec3 globalId, int iter) {
+  vec3 color = 0.0.xxx;
   if (IsMeshletView()) {
-    color = vec4(2.0 * getCellColor(globalId), 1.0);
+    color = 2.0 * getCellColor(globalId);
   } else if (IsDepthView()) {
-    color = vec4(fract(t * 0.01).xxx, 1.0);
-  } else /*if (bIterHeatView)*/ {
-    color = vec4((float(iter)/ITERS).xxx, 1.0);
-  } 
+    color = fract(t * 0.01).xxx;
+  } else if (IsIterHeatView()) {
+    color = (float(iter)/ITERS).xxx;
+  } else /*if (IsHashCollisionView())*/ {
+    VoxelAddr addr = constructVoxelAddr(0, globalId);
+    uint slot = hashCoords(globalId>>3)%SPARSE_L0_SLOTS;
+    bool bFound = false;
+    for (uint attempt=0; attempt<SPARSE_L0_ALLOC_ATTEMPTS; attempt++) {
+      if (blockOffsets[2*slot] == addr.blockIdx) {
+        bFound = true;
+        addr.blockIdx = blockOffsets[2*slot+1];
+        break;
+      } else {
+        slot++;
+      }
+    }
+    color = (bFound && addr.blockIdx != ~0) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  }
   return color;
 }
 
@@ -153,8 +209,8 @@ vec3 raymarch(vec3 startPos, vec3 dir, bool bDebugRender) {
     float stepDt = 0.0;
     float prevDdaT = 0.0;
     // TODO - standardize lod-scale jitter...
-    if (LOD_JITTER >= 0.0)
-      prevDdaT += LOD_JITTER * 100*rng(seed);
+    // if (LOD_JITTER >= 0.0)
+    //   prevDdaT += LOD_JITTER * 100*rng(seed);
     for (int iter=0; iter<ITERS; iter++) {
       float t = prevDdaT + dda.globalT;
       if (LOD_CUTOFFS && t > lodCutoffs[lodClamp]*LOD_SCALE*1000 && lodClamp < NUM_LEVELS)
@@ -188,7 +244,7 @@ vec3 raymarch(vec3 startPos, vec3 dir, bool bDebugRender) {
         if (bHit) {
           if (bDebugRender) {
             float dist = length(pos - startPos);
-            Li = debugColor(dist, globalId, iter).xyz;
+            Li = debugColor(dist, globalId, iter);
             throughput = 0.0.xxx;
             break;
           } else {  
@@ -247,7 +303,7 @@ void CS_RayMarch() {
     dir = normalize(c - startPos);
   }
 
-  vec3 forwardJitter = rng(seed) * dir * 0.0;
+  vec3 forwardJitter = rng(seed) * dir * LOD_JITTER * 0.001;//.0;
   startPos += forwardJitter;
 
   if (!bDebugRender)
