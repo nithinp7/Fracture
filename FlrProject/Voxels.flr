@@ -21,8 +21,9 @@ enable_feature: perspective_camera
 # TODO - support exponentiation, bitshifts, etc in flr expression parser...
 
 uint ENABLE_SPARSE_L0: 1
-uint L0_SPARSITY: 1024
+uint L0_SPARSITY: 128
 uint L0_SPARSE_RATIO: 4
+uint SPARSE_L0_ALLOC_ATTEMPTS: 4
 
 uint NUM_LEVELS: 4
 

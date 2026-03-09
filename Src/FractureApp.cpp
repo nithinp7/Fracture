@@ -182,4 +182,7 @@ void FractureApp::draw(flr::Project* project, VkCommandBuffer commandBuffer, con
       }
     }
   }
+  else {
+    project->setPushConstants(0);
+  }
 }

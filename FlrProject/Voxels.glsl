@@ -5,12 +5,14 @@
 #extension GL_KHR_shader_subgroup_ballot : enable
 #extension GL_KHR_shader_subgroup_vote : enable
 
+uvec2 seed;
+
+// #define JITTER_COVERAGE
 // #define ENABLE_DDA_CACHE
 #include "HDDA.glsl"
 #include "Bitfield.glsl"
 
-uvec2 seed;
-
+// #define DISABLE_CACHED_LIGHTING
 #include "Lighting.glsl"
 
 vec3 getCellColor(ivec3 coord) {
@@ -29,6 +31,27 @@ vec3 computeDir(vec2 uv) {
 
 	vec4 target = camera.inverseProjection * vec4(d, 1.0.xx);
 	return normalize((camera.inverseView * vec4(normalize(target.xyz), 0)).xyz);
+}
+
+float getUploadTexel(uvec3 texelId) {
+    uint texelIdx = texelId.z * SLICE_WIDTH * SLICE_HEIGHT + SLICE_WIDTH * texelId.y + texelId.x;
+
+#if BYTES_PER_PIXEL == 1
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 2];
+    val >>= 8 * ((texelIdx) & 3);
+    val &= 0xFF;
+#elif BYTES_PER_PIXEL == 2
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1];
+    val >>= 16 * ((texelIdx) & 1); 
+    val &= 0xFFFF;
+#else
+    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx];
+#endif
+
+  float f = float(val) - float(CUTOFF_LO);
+  f /= float(CUTOFF_HI - CUTOFF_LO);
+  
+  return f;
 }
 
 #ifdef IS_COMP_SHADER
@@ -60,22 +83,9 @@ void CS_UploadVoxels() {
     uint threadBitIdx = (dwordIdx << 5) | tid;
     uvec3 localId = getLocalId(threadBitIdx);
     uvec3 globalId = globalIdStart + localId;
-    uint texelIdx = (localId.z + 8 * tileId.z) * SLICE_WIDTH * SLICE_HEIGHT + SLICE_WIDTH * globalId.y + globalId.x;
+    uvec3 texelId = uvec3(globalId.xy, localId.z + 8 * tileId.z);
+    float f = getUploadTexel(texelId);
 
-#if BYTES_PER_PIXEL == 1
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 2];
-    val >>= 8 * ((texelIdx) & 3);
-    val &= 0xFF;
-#elif BYTES_PER_PIXEL == 2
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx >> 1];
-    val >>= 16 * ((texelIdx) & 1); 
-    val &= 0xFFFF;
-#else
-    uint val = batchUploadBuffer(uniforms.frameCount&1)[texelIdx];
-#endif
-
-    float f = float(val) - float(CUTOFF_LO);
-    f /= float(CUTOFF_HI - CUTOFF_LO);
     if (f < 0.0 || f > 1.0) {
       f = 0.0;
     }
@@ -339,6 +349,15 @@ vec3 linearToSdr(vec3 color) {
 }
 
 void PS_RayMarchVoxels(VertexOutput IN) {
+  float sliceDisplayWidth = 0.2;
+  if (push0 != 0 && IN.uv.x < sliceDisplayWidth && IN.uv.y < sliceDisplayWidth) {
+    vec2 uv = IN.uv / sliceDisplayWidth;
+    uvec3 texelId = uvec3(uvec2(uv * vec2(SLICE_WIDTH, SLICE_HEIGHT)), 0);
+    float f = getUploadTexel(texelId);
+    outDisplay = vec4(f.xxx, 1.0);
+    return;
+  }
+
   if (!ENABLE_POSTFX) {
     vec3 col = texture(RayMarchTexture, IN.uv).rgb;
     outDisplay = vec4(linearToSdr(col), 1.0);

@@ -62,9 +62,12 @@ bool accumulateLight(vec3 pos, vec3 dir, float dt, inout vec3 color, inout vec3 
   vec3 extinction = SCATTER_COL.rgb * DENSITY;
   // / pow(1.0 + 0.5 * level + float(iter) / ITERS, 1.0);
   vec3 Li;
+#ifndef DISABLE_CACHED_LIGHTING
   if (bCachedHit) {
     Li = cachedLi; // todo cache reuse limit...
-  } else {
+  } else
+#endif // DISABLE_CACHED_LIGHTING
+  {
     Li = cachedLi = raymarchLight(pos, dir, true, LIGHT_ITERS, LIGHT_DT,extinction);
     bCachedHit = true;
   }

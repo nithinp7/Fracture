@@ -1,8 +1,6 @@
 #ifndef _BITFIELD_GLSL_
 #define _BITFIELD_GLSL_
 
-#define SPARSE_L0_ALLOC_ATTEMPTS 4
-
 #define GetVoxelBlock(blockIdx) voxelBuffer(blockIdx/VOXEL_SUB_BUFFER_SIZE)[blockIdx%VOXEL_SUB_BUFFER_SIZE]
 
 struct VoxelAddr {
@@ -111,6 +109,11 @@ bool getBit(uint level, ivec3 globalId) {
 #endif
 #if ENABLE_SPARSE_L0
   if (level == 0) {
+#ifdef JITTER_COVERAGE
+    uint localIdx = rngu(seed)%512;
+    globalId = (globalId & ~7) | ivec3(getLocalId(localIdx));
+    addr = constructVoxelAddr(0, uvec3(globalId));
+#endif
     VoxelAddr parentBit = constructVoxelAddr(1, uvec3(globalId)>>BR_FACTOR_LOG2);
     if (!getBit(parentBit))
       return false;
